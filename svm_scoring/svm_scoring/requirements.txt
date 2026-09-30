@@ -1,0 +1,9 @@
+# Python 3.11 — versiones con las que se ejecutaron los notebooks
+numpy==2.4.6
+pandas==3.0.6
+scikit-learn==1.9.1
+imbalanced-learn==0.14.2
+scipy==1.17.1
+matplotlib==3.11.2
+ipykernel==7.4.0
+nbconvert==7.17.1

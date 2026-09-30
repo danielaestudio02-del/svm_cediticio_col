@@ -12,59 +12,101 @@ data/
   original/     Base original del artículo (German Credit Dataset - Statlog).
   simulado/     Base simulada (contexto colombiano), generada a partir de la
                 estructura de la base original.
-notebooks/      Notebook con el proceso completo: análisis de la base
-                original -> diseño -> generación -> validación.
-src/            Scripts reproducibles (.py) usados por el notebook.
-docs/           Documentación de referencia (razones y paso a paso de cada
-                fase del proyecto).
+notebooks/      Proceso completo, en orden (01 -> 04).
+src/            Scripts y módulos reproducibles (.py) que usan los notebooks.
+docs/           Documentación de referencia y resultados de validación.
+requirements.txt  Dependencias con versiones fijas.
 ```
 
 **Para entender por qué y cómo se construyó la base simulada**, ver
-[`docs/construccion_base_datos.md`](docs/construccion_base_datos.md) —
-documenta la motivación, la metodología y el paso a paso, como complemento al
-código del notebook.
+[`docs/construccion_base_datos.md`](docs/construccion_base_datos.md), que
+documenta la motivación, la metodología, el paso a paso y las limitaciones,
+como complemento al código de los notebooks.
 
 ### `data/original/`
 
-- `german.data` — 1.000 registros, 20 atributos + variable objetivo (formato
+- `german.data`: 1.000 registros, 20 atributos + variable objetivo (formato
   categórico/simbólico, separado por espacios, sin encabezado).
-- `german.data-numeric` — misma base, versión numérica (24 atributos)
+- `german.data-numeric`: misma base, versión numérica (24 atributos)
   preparada por Strathclyde University para algoritmos que requieren
   variables numéricas.
-- `german.doc` — documentación oficial de los atributos (códigos `A_ _`),
-  incluida la matriz de costos (falso negativo = 5x más costoso que falso
-  positivo).
-- `Index` — índice de archivos original del repositorio UCI.
+- `german.doc`: documentación oficial de los atributos (códigos `A_ _`),
+  incluida la matriz de costos (falso negativo = 5 veces más costoso que un
+  falso positivo).
+- `Index`: índice de archivos original del repositorio UCI.
 - **Fuente:** Prof. Dr. Hans Hofmann, Institut für Statistik und Ökonometrie,
   Universität Hamburg (UCI Machine Learning Repository).
 
 ### `data/simulado/`
 
-- `credito_simulado_base.csv` — 6.500 registros, sin valores faltantes.
-  Base de referencia para verificar que la estructura (distribuciones,
-  relaciones, balance de clases) es correcta antes de introducir defectos.
-- `credito_simulado_con_faltantes.csv` — misma base con 3%-5% de valores
-  faltantes y ruido controlado en variables numéricas. **Esta es la base de
-  trabajo para el flujo de modelamiento** (imputación, pipeline, entrenamiento).
+- `credito_simulado_base.csv`: 6.500 registros, sin valores faltantes, con
+  22.5% de riesgo "malo". Base de control para verificar que la estructura
+  (distribuciones, relaciones, balance de clases) es correcta antes de
+  introducir defectos.
+- `credito_simulado_con_faltantes.csv`: misma base con 3%-5% de valores
+  faltantes por columna y ruido leve de medición. **Esta es la base de trabajo
+  para el modelamiento** (imputación, pipeline, entrenamiento).
 
 ### `notebooks/`
 
-- `Base_de_datos_simulada.ipynb` — proceso completo y documentado: análisis
-  exploratorio de la base original, diseño de la simulación, generación
-  variable por variable, construcción de la variable objetivo, ensamble,
-  versión con faltantes, y validación (incluida comparación visual directa
-  original vs. simulado).
+| Notebook | Sección de la guía | Contenido |
+|---|---|---|
+| `01_Base_de_datos_simulada.ipynb` | 7.1 | Análisis de la base original, diseño de la simulación, generación variable por variable, variable objetivo y validación frente al original. |
+| `02_EDA_y_calidad_datos.ipynb` | 7.1 | EDA de la base simulada, verificación de lo planeado y calidad de la base con faltantes (transformaciones necesarias). |
+| `03_Pipeline_particion_lineas_base.ipynb` | 7.2 | Partición estratificada, `Pipeline` sin fuga, comparación de estrategias de balanceo y líneas base (mayoría y regresión logística). |
+| `04_SVM_reproduccion_metodo.ipynb` | 7.3 | Reproducción del SVM sobre el German Credit (75.5% de accuracy frente al 75% del artículo), adaptación a la base simulada con ajuste de `C` y `γ` por validación cruzada, comparación de kernels (lineal, gaussiano, polinómico y sigmoide), curvas de validación, fronteras de decisión, coeficientes del SVM lineal y justificación de la adaptación. |
 
 ### `src/`
 
-- `generar_datos_simulados.py` — script que genera los dos CSV de
-  `data/simulado/` (semilla fija = 42, reproducible).
-- `validar_simulacion.py` — script de validación (genera
-  `resumen_validacion.md` y las figuras de verificación).
+- `generar_datos_simulados.py`: genera los dos CSV de `data/simulado/`
+  (semilla fija = 42, reproducible). Expone también los pesos del puntaje
+  latente y la probabilidad teórica `P(malo | x)` usada como techo en el
+  notebook 04.
+- `validar_simulacion.py`: verifica 14 criterios de aceptación de la
+  simulación y genera `docs/validacion/resumen_validacion.md` y sus figuras.
+  Termina con error si algún criterio no se cumple.
+- `preprocesamiento.py`: partición 80/20 y `Pipeline` compartido
+  (imputación, escalamiento, balanceo opcional y codificación). Todos los
+  notebooks de modelamiento lo importan, para que las transformaciones sean
+  idénticas entre modelos.
+
+## Cómo reproducir
+
+Desde la carpeta que contiene este README:
+
+```bash
+python -m venv .venv
+# Windows: .venv\Scripts\activate   |   Linux/Mac: source .venv/bin/activate
+pip install -r requirements.txt
+
+python src/generar_datos_simulados.py   # regenera data/simulado/
+python src/validar_simulacion.py        # verifica la simulación
+
+# Ejecuta los notebooks en orden (el 04 tarda unos 10 minutos)
+jupyter nbconvert --to notebook --execute --inplace notebooks/0*.ipynb
+```
+
+Para usar el `Pipeline` compartido en un notebook nuevo:
+
+```python
+import sys; sys.path.append("../src")
+from preprocesamiento import cargar_particion, construir_pipeline
+from sklearn.ensemble import RandomForestClassifier
+
+X_train, X_test, y_train, y_test = cargar_particion()
+pipe = construir_pipeline(RandomForestClassifier(class_weight="balanced", random_state=42))
+```
 
 ## Próximos pasos
 
-Pipeline de preprocesamiento (imputación, codificación, escalamiento) y
-entrenamiento/comparación de modelos (SVM lineal, SVM-RBF, Random Forest,
-Gradient Boosting) frente a las líneas base, según el plan definido en la
-Primera entrega.
+- Random Forest y Gradient Boosting con el mismo `Pipeline` y la misma
+  partición, con ajuste de hiperparámetros por validación cruzada (7.3).
+- Validación cruzada anidada, métricas con su variabilidad e interpretación
+  preliminar del mejor modelo (7.4).
+
+## Uso de inteligencia artificial generativa
+
+Conforme a la guía del proyecto, el equipo declara que utilizó herramientas de
+IA generativa como apoyo en la revisión del código, la depuración y la
+redacción de la documentación. Todas las decisiones metodológicas fueron
+revisadas por el equipo, que puede sustentarlas.
