@@ -12,9 +12,10 @@ data/
   original/     Base original del artículo (German Credit Dataset - Statlog).
   simulado/     Base simulada (contexto colombiano), generada a partir de la
                 estructura de la base original.
-notebooks/      Proceso completo, en orden (01 -> 04).
+notebooks/      Proceso completo, en orden (01 -> 05).
 src/            Scripts y módulos reproducibles (.py) que usan los notebooks.
-docs/           Documentación de referencia y resultados de validación.
+docs/           Documentación de referencia, validación de la simulación y
+                resultados de modelamiento (docs/resultados/).
 requirements.txt  Dependencias con versiones fijas.
 ```
 
@@ -55,6 +56,7 @@ como complemento al código de los notebooks.
 | `02_EDA_y_calidad_datos.ipynb` | 7.1 | EDA de la base simulada, verificación de lo planeado y calidad de la base con faltantes (transformaciones necesarias). |
 | `03_Pipeline_particion_lineas_base.ipynb` | 7.2 | Partición estratificada, `Pipeline` sin fuga, comparación de estrategias de balanceo y líneas base (mayoría y regresión logística). |
 | `04_SVM_reproduccion_metodo.ipynb` | 7.3 | Reproducción del SVM sobre el German Credit (75.5% de accuracy frente al 75% del artículo), adaptación a la base simulada con ajuste de `C` y `γ` por validación cruzada, comparación de kernels (lineal, gaussiano, polinómico y sigmoide), curvas de validación, fronteras de decisión, coeficientes del SVM lineal y justificación de la adaptación. |
+| `05_Ensambles_validacion_anidada.ipynb` | 7.3 y 7.4 | Random Forest y Gradient Boosting con sus hiperparámetros; validación cruzada anidada (5 folds externos × 3 internos) de todos los modelos frente a las líneas base, con F1, ROC-AUC y recall de "malo" (media ± desviación; accuracy solo como referencia); prueba t corregida; evaluación en test, matrices de confusión y análisis de errores; importancia por permutación del mejor modelo, su estabilidad entre folds y su contraste con la estructura verdadera de la simulación. |
 
 ### `src/`
 
@@ -65,6 +67,10 @@ como complemento al código de los notebooks.
 - `validar_simulacion.py`: verifica 14 criterios de aceptación de la
   simulación y genera `docs/validacion/resumen_validacion.md` y sus figuras.
   Termina con error si algún criterio no se cumple.
+- `evaluacion.py`: costo 5:1, umbral de costo mínimo, prueba t corregida de
+  Nadeau y Bengio y la validación cruzada anidada (`validacion_anidada`) que
+  usa el notebook 05. En cada fold externo, la búsqueda de hiperparámetros y el
+  umbral se eligen solo con la parte de entrenamiento.
 - `preprocesamiento.py`: partición 80/20 y `Pipeline` compartido
   (imputación, escalamiento, balanceo opcional y codificación). Todos los
   notebooks de modelamiento lo importan, para que las transformaciones sean
@@ -82,7 +88,7 @@ pip install -r requirements.txt
 python src/generar_datos_simulados.py   # regenera data/simulado/
 python src/validar_simulacion.py        # verifica la simulación
 
-# Ejecuta los notebooks en orden (el 04 tarda unos 10 minutos)
+# Ejecuta los notebooks en orden (el 04 y el 05 tardan unos 10-15 minutos cada uno)
 jupyter nbconvert --to notebook --execute --inplace notebooks/0*.ipynb
 ```
 
@@ -99,10 +105,11 @@ pipe = construir_pipeline(RandomForestClassifier(class_weight="balanced", random
 
 ## Próximos pasos
 
-- Random Forest y Gradient Boosting con el mismo `Pipeline` y la misma
-  partición, con ajuste de hiperparámetros por validación cruzada (7.3).
-- Validación cruzada anidada, métricas con su variabilidad e interpretación
-  preliminar del mejor modelo (7.4).
+- Informe de la Segunda entrega: consolidar las tablas y figuras de
+  `docs/resultados/` (generadas por el notebook 05).
+- Explorar si un ajuste del umbral por segmento (p. ej. por historial de pago)
+  reduce el costo sin sacrificar equidad, y revisar la calibración de las
+  probabilidades del modelo elegido.
 
 ## Uso de inteligencia artificial generativa
 
