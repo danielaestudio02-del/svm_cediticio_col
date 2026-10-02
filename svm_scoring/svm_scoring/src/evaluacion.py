@@ -117,7 +117,8 @@ def ajustar_modelo(pipeline, espacio, X, y, cv_interna, n_iter=None, ajustar_umb
                                           scoring="roc_auc", n_jobs=-1, random_state=seed)
         busqueda.fit(X, y)
         mejor = busqueda.best_estimator_
-        mejores_params = {k.replace("modelo__", ""): v for k, v in busqueda.best_params_.items()}
+        mejores_params = {k.replace("modelo__", "").replace("seleccion__estimator__", "lasso_"): v
+                          for k, v in busqueda.best_params_.items()}
     else:
         mejor = clone(pipeline).fit(X, y)
         mejores_params = {}

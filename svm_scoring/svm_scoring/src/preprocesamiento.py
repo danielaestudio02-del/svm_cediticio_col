@@ -11,7 +11,10 @@ Orden de las etapas del pipeline (todas se ajustan solo con train):
   3. Balanceo con SMOTENC (opcional, `balancear=True`), sobre numéricas ya
      escaladas y categóricas todavía sin codificar.
   4. Codificación one-hot de las categóricas.
-  5. Clasificador.
+  5. Selección de variables con LASSO (opcional, `seleccionar=True`): una
+     regresión logística con penalización L1 descarta las columnas cuyo
+     coeficiente se anula, como en el artículo.
+  6. Clasificador.
 
 Balanceo: en el notebook 03, la validación cruzada sobre train mostró que
 `class_weight="balanced"` en el clasificador logra el mismo ROC-AUC que no
@@ -29,7 +32,9 @@ from pathlib import Path
 import pandas as pd
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.compose import ColumnTransformer
+from sklearn.feature_selection import SelectFromModel
 from sklearn.impute import SimpleImputer
+from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
@@ -104,10 +109,24 @@ def construir_codificador():
     )
 
 
-def construir_pipeline(clasificador, balancear=False, seed=SEED):
-    """Pipeline completo: imputación -> escalamiento -> [SMOTENC] -> one-hot -> modelo."""
+def construir_selector_lasso(C=0.1, seed=SEED):
+    """Etapa 5: conserva las columnas con coeficiente no nulo en una logística L1.
+
+    `C` controla la fuerza de la selección (más pequeño = menos columnas) y se
+    puede ajustar por validación cruzada como `seleccion__estimator__C`.
+    """
+    lasso = LogisticRegression(l1_ratio=1, solver="liblinear", C=C,
+                               class_weight="balanced", random_state=seed)
+    return SelectFromModel(lasso)
+
+
+def construir_pipeline(clasificador, balancear=False, seleccionar=False, seed=SEED):
+    """Pipeline: imputación -> escalamiento -> [SMOTENC] -> one-hot -> [LASSO] -> modelo."""
     pasos = construir_preprocesador_inicial()
     if balancear:
         pasos.append(("balanceo", SMOTENC(categorical_features=CAT_COLS, random_state=seed)))
-    pasos += [("codificar", construir_codificador()), ("modelo", clasificador)]
+    pasos.append(("codificar", construir_codificador()))
+    if seleccionar:
+        pasos.append(("seleccion", construir_selector_lasso(seed=seed)))
+    pasos.append(("modelo", clasificador))
     return ImbPipeline(steps=pasos)

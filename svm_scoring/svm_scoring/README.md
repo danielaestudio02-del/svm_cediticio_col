@@ -56,7 +56,7 @@ como complemento al código de los notebooks.
 | `02_EDA_y_calidad_datos.ipynb` | 7.1 | EDA de la base simulada, verificación de lo planeado y calidad de la base con faltantes (transformaciones necesarias). |
 | `03_Pipeline_particion_lineas_base.ipynb` | 7.2 | Partición estratificada, `Pipeline` sin fuga, comparación de estrategias de balanceo y líneas base (mayoría y regresión logística). |
 | `04_SVM_reproduccion_metodo.ipynb` | 7.3 | Reproducción del SVM sobre el German Credit (75.5% de accuracy frente al 75% del artículo), adaptación a la base simulada con ajuste de `C` y `γ` por validación cruzada, comparación de kernels (lineal, gaussiano, polinómico y sigmoide), curvas de validación, fronteras de decisión, coeficientes del SVM lineal y justificación de la adaptación. |
-| `05_Ensambles_validacion_anidada.ipynb` | 7.3 y 7.4 | Random Forest y Gradient Boosting con sus hiperparámetros; validación cruzada anidada (5 folds externos × 3 internos) de todos los modelos frente a las líneas base, con F1, ROC-AUC y recall de "malo" (media ± desviación; accuracy solo como referencia); prueba t corregida; evaluación en test, matrices de confusión y análisis de errores; importancia por permutación del mejor modelo, su estabilidad entre folds y su contraste con la estructura verdadera de la simulación. |
+| `05_Ensambles_validacion_anidada.ipynb` | 7.3 y 7.4 | Árbol de decisión, Random Forest, Gradient Boosting y SVM RBF con selección de variables por LASSO, con sus hiperparámetros; validación cruzada anidada (5 folds externos × 3 internos) de todos los modelos frente a las líneas base, con F1, ROC-AUC y recall de "malo" (media ± desviación; accuracy solo como referencia); prueba t corregida; evaluación en test, matrices de confusión y análisis de errores; importancia por permutación del mejor modelo, su estabilidad entre folds y su contraste con la estructura verdadera de la simulación. |
 
 ### `src/`
 
@@ -72,7 +72,8 @@ como complemento al código de los notebooks.
   usa el notebook 05. En cada fold externo, la búsqueda de hiperparámetros y el
   umbral se eligen solo con la parte de entrenamiento.
 - `preprocesamiento.py`: partición 80/20 y `Pipeline` compartido
-  (imputación, escalamiento, balanceo opcional y codificación). Todos los
+  (imputación, escalamiento, balanceo opcional, codificación y selección de
+  variables opcional por LASSO). Todos los
   notebooks de modelamiento lo importan, para que las transformaciones sean
   idénticas entre modelos.
 

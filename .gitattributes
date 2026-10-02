@@ -1,0 +1,8 @@
+# Finales de línea uniformes (LF) para todos los sistemas operativos
+* text=auto eol=lf
+
+# Archivos binarios
+*.png binary
+*.jpg binary
+*.pdf binary
+*.zip binary
