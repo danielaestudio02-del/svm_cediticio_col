@@ -16,6 +16,7 @@ notebooks/      Proceso completo, en orden (01 -> 05).
 src/            Scripts y módulos reproducibles (.py) que usan los notebooks.
 docs/           Documentación de referencia, validación de la simulación y
                 resultados de modelamiento (docs/resultados/).
+informe/        Informe de la Segunda entrega (PDF, fuente HTML y script que lo genera).
 requirements.txt  Dependencias con versiones fijas.
 ```
 
@@ -73,9 +74,16 @@ como complemento al código de los notebooks.
   umbral se eligen solo con la parte de entrenamiento.
 - `preprocesamiento.py`: partición 80/20 y `Pipeline` compartido
   (imputación, escalamiento, balanceo opcional, codificación y selección de
-  variables opcional por LASSO). Todos los
-  notebooks de modelamiento lo importan, para que las transformaciones sean
-  idénticas entre modelos.
+  variables opcional por LASSO). Todos los notebooks de modelamiento lo
+  importan, para que las transformaciones sean idénticas entre modelos.
+
+### `informe/`
+
+- `Informe_Segunda_Entrega.pdf`: informe de la Segunda entrega (secciones 7.1
+  a 7.4 de la guía).
+- `informe.html`: fuente editable del informe.
+- `generar_informe.py`: reúne las figuras desde `docs/` y el notebook 04 y
+  convierte el HTML a PDF con Microsoft Edge o Chrome.
 
 ## Cómo reproducir
 
@@ -89,9 +97,15 @@ pip install -r requirements.txt
 python src/generar_datos_simulados.py   # regenera data/simulado/
 python src/validar_simulacion.py        # verifica la simulación
 
-# Ejecuta los notebooks en orden (el 04 y el 05 tardan unos 10-15 minutos cada uno)
+# Ejecuta los notebooks en orden (el 04 tarda unos 15 minutos y el 05 unos 20)
 jupyter nbconvert --to notebook --execute --inplace notebooks/0*.ipynb
+
+python informe/generar_informe.py       # regenera el PDF del informe
 ```
+
+Conviene ejecutar un solo notebook a la vez: el 04 y el 05 usan todos los
+núcleos del procesador (`n_jobs=-1`), y en Windows dos ejecuciones simultáneas
+pueden bloquearse entre sí.
 
 Para usar el `Pipeline` compartido en un notebook nuevo:
 
@@ -104,10 +118,13 @@ X_train, X_test, y_train, y_test = cargar_particion()
 pipe = construir_pipeline(RandomForestClassifier(class_weight="balanced", random_state=42))
 ```
 
-## Próximos pasos
+## Próximos pasos (Entrega final)
 
-- Informe de la Segunda entrega: consolidar las tablas y figuras de
-  `docs/resultados/` (generadas por el notebook 05).
+- Seleccionar el modelo final sopesando la pequeña ventaja del SVM RBF frente
+  a la interpretabilidad de la regresión logística y el SVM lineal.
+- Interpretación con SHAP o dependencia parcial, como se planteó en la Primera
+  entrega.
+- Despliegue básico en Streamlit que aplique el `Pipeline` completo.
 - Explorar si un ajuste del umbral por segmento (p. ej. por historial de pago)
   reduce el costo sin sacrificar equidad, y revisar la calibración de las
   probabilidades del modelo elegido.

@@ -15,3 +15,6 @@ __pycache__/
 Thumbs.db
 .vscode/
 .idea/
+
+# Figuras del informe (se regeneran con informe/generar_informe.py)
+informe/figuras/
