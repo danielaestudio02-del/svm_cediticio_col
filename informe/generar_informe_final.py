@@ -18,7 +18,7 @@ RAIZ = Path(__file__).resolve().parents[1]
 DIR_INFORME = RAIZ / "informe"
 DIR_FIG = DIR_INFORME / "figuras"
 HTML = DIR_INFORME / "informe_final.html"
-PDF = DIR_INFORME / "Informe_Entrega_Final.pdf"
+PDF = RAIZ / "entregas" / "03_entrega_final" / "Informe_Entrega_Final.pdf"
 
 COPIAR = {
     "f1_seleccion.png": RAIZ / "docs" / "resultados" / "06_fig1_seleccion.png",

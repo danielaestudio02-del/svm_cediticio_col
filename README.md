@@ -21,8 +21,9 @@ web/            Versión web estática de la aplicación (un solo HTML, sin
 docs/           Documentación de referencia, validación de la simulación,
                 resultados de modelamiento (docs/resultados/) y capturas
                 del despliegue (docs/despliegue/).
-informe/        Informes de la Segunda entrega y de la Entrega final (PDF,
-                fuente HTML y scripts que los generan).
+entregas/       Documentos entregados en cada fase: informes (PDF y Word),
+                auditoría de coherencia y presentación de la sustentación.
+informe/        Fuente HTML de los informes y scripts que generan los PDF.
 requirements.txt  Dependencias con versiones fijas.
 ```
 
@@ -93,11 +94,20 @@ como complemento al código de los notebooks.
   variables opcional por LASSO). Todos los notebooks de modelamiento lo
   importan, para que las transformaciones sean idénticas entre modelos.
 
+### `entregas/`
+
+- `01_primera_entrega/Informe_Primera_Entrega.pdf`: comprensión del artículo,
+  planteamiento del problema, estrategia de datos y plan de modelamiento.
+- `02_segunda_entrega/Informe_Segunda_Entrega.pdf`: secciones 7.1 a 7.4 de la guía.
+- `03_entrega_final/`: `Informe_Entrega_Final.pdf`, su versión revisada
+  y editable (`Informe_Entrega_Final_revisado.docx`), la auditoría de
+  coherencia (`Auditoria_coherencia_entrega_final.docx`) y la presentación de
+  la sustentación (`Sustentacion_Entrega_Final.pptx`).
+
 ### `informe/`
 
-- `Informe_Segunda_Entrega.pdf`: informe de la Segunda entrega (secciones 7.1
-  a 7.4 de la guía).
-- `informe.html`: fuente editable del informe.
+- `informe.html` e `informe_final.html`: fuentes de los PDF de la Segunda
+  entrega y de la Entrega final, que los scripts guardan en `entregas/`.
 - `generar_informe.py`: reúne las figuras desde `docs/` y el notebook 04 y
   convierte el HTML a PDF con Microsoft Edge o Chrome.
 
