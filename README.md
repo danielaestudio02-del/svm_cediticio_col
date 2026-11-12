@@ -16,6 +16,8 @@ notebooks/      Proceso completo, en orden (01 -> 06).
 src/            Scripts y módulos reproducibles (.py) que usan los notebooks.
 models/         Modelo final serializado (lo genera src/modelo_final.py).
 app/            Aplicación de Streamlit (despliegue básico) y CSV de ejemplo.
+web/            Versión web estática de la aplicación (un solo HTML, sin
+                servidor) y el script que la genera.
 docs/           Documentación de referencia, validación de la simulación,
                 resultados de modelamiento (docs/resultados/) y capturas
                 del despliegue (docs/despliegue/).
@@ -161,6 +163,28 @@ con pocos núcleos, como el de Streamlit Community Cloud.
 
 Es un prototipo académico entrenado con datos simulados: no debe usarse para
 decisiones reales de crédito.
+
+### Versión web estática (HTML)
+
+`web/index.html` es la misma aplicación (las mismas tres pestañas y los mismos
+cálculos) en un solo archivo, sin servidor ni Python: se abre con doble clic o
+se publica en GitHub Pages. Lleva dentro el modelo exportado (vectores de
+soporte, imputación, escalado, calibración de Platt y umbral) y calcula en el
+navegador la decisión, la probabilidad, los valores SHAP exactos y la
+verificación de coherencia del lote; ningún dato sale del equipo. La interfaz
+sigue el sistema de diseño de [shadcn/ui](https://ui.shadcn.com) (tipografía
+Geist, modo oscuro, adaptable a móvil).
+
+```bash
+python web/construir_web.py     # regenera web/index.html desde models/modelo_final.joblib
+```
+
+Antes de escribir el archivo, el script comprueba que la reimplementación
+reproduce `decision_function` del modelo en las 1.300 solicitudes de prueba
+(diferencia máxima < 1e-9). Las fuentes están en `web/src/`: plantilla,
+estilos, motor de cálculo (`motor.js`) e interfaz (`interfaz.js`). Sin conexión
+a internet la página funciona igual, pero usa la tipografía del sistema.
+Capturas: `docs/despliegue/web_solicitud.png` y `docs/despliegue/web_lote.png`.
 
 Conviene ejecutar un solo notebook a la vez: el 04 y el 05 usan todos los
 núcleos del procesador (`n_jobs=-1`), y en Windows dos ejecuciones simultáneas

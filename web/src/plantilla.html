@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Riesgo crediticio · SVM</title>
+<meta name="description" content="Evaluación de riesgo crediticio con una máquina de vectores de soporte (kernel RBF): reproducción y adaptación de Xu y Cheng al contexto colombiano. Prototipo académico con datos simulados.">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#171717">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23e5e5e5'/%3E%3Cpath d='M9 17.5l4.5 4.5L23 11' fill='none' stroke='%23171717' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>/*__ESTILOS__*/</style>
+</head>
+<body>
+<div class="app" id="app" data-barra="abierta">
+  <div class="velo" id="velo" aria-hidden="true"></div>
+
+  <!-- Barra lateral: ficha del modelo (igual que la barra lateral de Streamlit) -->
+  <aside class="barra" id="barra" aria-label="Información del modelo">
+    <div class="barra-encabezado">
+      <div class="logo" aria-hidden="true" data-icono="shield"></div>
+      <div class="barra-titulo">
+        <span class="barra-nombre">Riesgo crediticio</span>
+        <span class="barra-sub">Prototipo académico</span>
+      </div>
+    </div>
+    <div class="barra-contenido" id="barra-contenido"></div>
+    <div class="barra-pie" id="barra-pie"></div>
+  </aside>
+
+  <main class="inset" id="contenido">
+    <header class="encabezado">
+      <button class="btn btn-ghost btn-icono-sm" id="btn-barra" aria-label="Alternar barra lateral" data-tooltip="Alternar barra lateral" data-atajo="Ctrl B" data-icono="panel"></button>
+      <span class="separador-v" aria-hidden="true"></span>
+      <nav class="migas" aria-label="Ruta">
+        <span class="migas-raiz">Riesgo crediticio</span>
+        <span class="migas-sep" data-icono="chevronRight" aria-hidden="true"></span>
+        <span class="migas-actual" id="migas-actual">Evaluar una solicitud</span>
+      </nav>
+      <div class="encabezado-acciones">
+        <span class="badge badge-outline oculto-movil"><span class="punto punto-ambar"></span>Datos simulados</span>
+        <a class="btn btn-ghost btn-icono-sm" id="enlace-repo" target="_blank" rel="noopener" aria-label="Repositorio en GitHub" data-tooltip="Código en GitHub" data-icono="github"></a>
+      </div>
+    </header>
+
+    <div class="pagina">
+      <section class="hero">
+        <div class="hero-fondo" aria-hidden="true"></div>
+        <span class="badge badge-secundario hero-etiqueta"><span data-icono="sparkles"></span>SVM · kernel RBF · Xu y Cheng</span>
+        <h1>Evaluación de riesgo crediticio</h1>
+        <p class="hero-texto">SVM con kernel RBF · reproducción y adaptación de Xu y Cheng al contexto colombiano ·
+          <strong>prototipo académico entrenado con datos simulados</strong>: no usar para decisiones reales.</p>
+      </section>
+
+      <div class="tabs" id="tabs">
+        <div class="tabs-lista" role="tablist" aria-label="Secciones">
+          <button class="tab" role="tab" id="tab-solicitud" aria-controls="panel-solicitud" aria-selected="true" data-icono-izq="user"><span class="largo">Evaluar una solicitud</span><span class="corto">Solicitud</span></button>
+          <button class="tab" role="tab" id="tab-lote" aria-controls="panel-lote" aria-selected="false" tabindex="-1" data-icono-izq="table"><span class="largo">Evaluar un lote (CSV)</span><span class="corto">Lote (CSV)</span></button>
+          <button class="tab" role="tab" id="tab-acerca" aria-controls="panel-acerca" aria-selected="false" tabindex="-1" data-icono-izq="book"><span class="largo">Acerca del modelo</span><span class="corto">Acerca</span></button>
+        </div>
+
+        <section class="panel" role="tabpanel" id="panel-solicitud" aria-labelledby="tab-solicitud"></section>
+        <section class="panel" role="tabpanel" id="panel-lote" aria-labelledby="tab-lote" hidden></section>
+        <section class="panel" role="tabpanel" id="panel-acerca" aria-labelledby="tab-acerca" hidden></section>
+      </div>
+    </div>
+  </main>
+</div>
+
+<div class="toaster" id="toaster" aria-live="polite"></div>
+
+<noscript><div class="noscript">Esta página necesita JavaScript para evaluar las solicitudes.</div></noscript>
+
+<script id="modelo-datos" type="application/json">__MODELO_JSON__</script>
+<script>/*__MOTOR__*/</script>
+<script>/*__INTERFAZ__*/</script>
+</body>
+</html>
