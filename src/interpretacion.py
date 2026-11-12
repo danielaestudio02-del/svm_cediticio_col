@@ -12,6 +12,9 @@ Reúne lo que comparten el notebook 06 y la aplicación de Streamlit:
 - `perfil_datos` y `verificar_coherencia`: perfil de los datos de
   entrenamiento y comparación con los datos que llegan a la aplicación
   (esquema, categorías, rangos, reglas de negocio y deriva por PSI).
+- `CorteMontoPlazo`: el mapa de decisión de la aplicación. Evalúa el modelo en
+  el plano monto × plazo con las otras 9 variables fijas y busca el cambio de
+  una sola de las dos que cambia la decisión.
 
 Convención: 1 = "malo" (clase positiva). El puntaje del SVM es
 `decision_function`: mayor = más riesgo, en unidades del margen.
@@ -316,3 +319,134 @@ def _hallazgo_psi(h, c, valor):
     elif valor >= 0.10:
         h.append({"nivel": "info", "variable": c, "filas": 0,
                   "detalle": f"Deriva moderada frente a entrenamiento (PSI = {valor:.2f})."})
+
+
+# ---------------------------------------------------------------------------
+# 4. Mapa de decisión: el modelo en el plano monto × plazo
+# ---------------------------------------------------------------------------
+class CorteMontoPlazo:
+    """El modelo como función del monto y del plazo, con las otras 9 variables fijas en los
+    valores de una solicitud: un corte ceteris paribus (una curva ICE en dos dimensiones).
+
+    `caminos()` busca, para cada una de las dos variables por separado, hasta dónde se puede
+    mover sin que cambie la decisión (si se aprueba) o hasta dónde hay que moverla para que
+    cambie (si se rechaza). La versión web (web/src/motor.js) hace el mismo cálculo.
+
+    Cálculo rápido: con las otras 9 variables fijas, el kernel RBF se separa en
+    exp(-γ·d_resto) · exp(-γ·(monto - sv)²) · exp(-γ·(plazo - sv)²), así que el puntaje de
+    toda la malla sale de un producto de matrices en vez de miles de llamadas al pipeline.
+    La solicitud pasa una sola vez por el pipeline (imputación, escalamiento y one-hot), y el
+    resultado se contrasta con `decision_function`: si no coincide, se usa el pipeline.
+    """
+
+    PLAZOS = np.arange(3, 73, 3)                  # el formulario usa múltiplos de 3 meses
+    N_BARRIDO, N_BISECCION, REDONDEO = 240, 40, 10_000
+
+    def __init__(self, modelo, x, perfil):
+        self.modelo = modelo
+        self.x = x[COLUMNAS].iloc[[0]].reset_index(drop=True)
+        rango = perfil["numericas"]
+        self.monto_min, self.monto_max = rango["monto_credito_cop"]["min"], rango["monto_credito_cop"]["max"]
+        self.plazo_min, self.plazo_max = rango["plazo_meses"]["min"], rango["plazo_meses"]["max"]
+        pipe = modelo.pipeline
+        num = pipe.named_steps["imputar_escalar"].named_transformers_["num"]
+        # Si falta el monto o el plazo, el pipeline usa la mediana de entrenamiento
+        mediana = dict(zip(NUM_COLS, num.named_steps["imputer"].statistics_))
+        valor = {c: float(pd.to_numeric(self.x.loc[0, c], errors="coerce"))
+                 for c in ["monto_credito_cop", "plazo_meses"]}
+        self.monto = mediana["monto_credito_cop"] if np.isnan(valor["monto_credito_cop"]) else valor["monto_credito_cop"]
+        self.plazo = mediana["plazo_meses"] if np.isnan(valor["plazo_meses"]) else valor["plazo_meses"]
+        self.umbral = modelo.umbral
+
+        # Piezas del cálculo rápido
+        svc, escala = pipe.named_steps["modelo"], num.named_steps["scaler"]
+        columnas = list(pipe.named_steps["codificar"].get_feature_names_out())
+        jm, jp = columnas.index("monto_credito_cop"), columnas.index("plazo_meses")
+        km, kp = NUM_COLS.index("monto_credito_cop"), NUM_COLS.index("plazo_meses")
+        self._esc = (escala.mean_[km], escala.scale_[km], escala.mean_[kp], escala.scale_[kp])
+        z = np.asarray(pipe[:-1].transform(self.x), dtype=float)[0]
+        sv = svc.support_vectors_
+        otras = [j for j in range(sv.shape[1]) if j not in (jm, jp)]
+        self._gamma = float(svc._gamma)
+        self._peso = svc.dual_coef_[0] * np.exp(-self._gamma * ((sv[:, otras] - z[otras]) ** 2).sum(axis=1))
+        self._sv_monto, self._sv_plazo, self._b = sv[:, jm], sv[:, jp], float(svc.intercept_[0])
+        referencia = float(modelo.puntaje(self.x)[0])
+        self._rapido = abs(self._puntajes_rapidos(np.array([self.monto]), np.array([self.plazo]))[0] - referencia) < 1e-8
+        self.aprobado = bool(referencia < self.umbral)
+
+    def _factores(self, valores, media, desv, sv):
+        z = (np.asarray(valores, dtype=float).ravel() - media) / desv
+        return np.exp(-self._gamma * (z[:, None] - sv[None, :]) ** 2)
+
+    def _puntajes_rapidos(self, montos, plazos):
+        mm, sm, mp, sp = self._esc
+        fm = self._factores(montos, mm, sm, self._sv_monto)
+        fp = self._factores(plazos, mp, sp, self._sv_plazo)
+        return self._b + (fm * fp) @ self._peso
+
+    def puntajes(self, montos, plazos):
+        """Puntaje del SVM para pares (monto, plazo); acepta escalares o arreglos."""
+        montos, plazos = np.broadcast_arrays(np.asarray(montos, dtype=float), np.asarray(plazos, dtype=float))
+        if self._rapido:
+            return self._puntajes_rapidos(montos.ravel(), plazos.ravel()).reshape(montos.shape)
+        X = self.x.loc[np.zeros(montos.size, dtype=int)].reset_index(drop=True)
+        X["monto_credito_cop"] = montos.ravel()
+        X["plazo_meses"] = plazos.ravel()
+        return self.modelo.puntaje(X).reshape(montos.shape)
+
+    def malla(self, n_monto=120, n_plazo=80):
+        """Montos (escala log), plazos y matriz de puntajes (filas = plazos)."""
+        montos = np.geomspace(self.monto_min, self.monto_max, n_monto)
+        plazos = np.linspace(self.plazo_min, self.plazo_max, n_plazo)
+        if not self._rapido:
+            return montos, plazos, self.puntajes(*np.meshgrid(montos, plazos))
+        mm, sm, mp, sp = self._esc
+        fm = self._factores(montos, mm, sm, self._sv_monto)                 # n_monto × SV
+        fp = self._factores(plazos, mp, sp, self._sv_plazo) * self._peso    # n_plazo × SV
+        return montos, plazos, self._b + fp @ fm.T
+
+    def _limite_monto(self):
+        """Monto más alto con el que la solicitud queda aprobada, buscando desde el monto actual
+        hacia abajo (si se rechaza) o hacia arriba (si se aprueba). None: no existe en el rango
+        de entrenamiento (rechazo) o se aprueba en todo él (aprobación)."""
+        hacia = self.monto_max if self.aprobado else self.monto_min
+        if (self.monto >= hacia) if self.aprobado else (self.monto <= hacia):
+            return None
+        l0, l1 = np.log(self.monto), np.log(hacia)
+        logs = l0 + np.arange(self.N_BARRIDO + 1) * ((l1 - l0) / self.N_BARRIDO)
+        cambia = (lambda s: s >= self.umbral) if self.aprobado else (lambda s: s < self.umbral)
+        c = cambia(self.puntajes(np.exp(logs), self.plazo))
+        if not c[1:].any():
+            return None
+        j = int(np.argmax(c[1:])) + 1
+        lo, hi = logs[j - 1], logs[j]                # lo: misma decisión; hi: decisión cambiada
+        for _ in range(self.N_BISECCION):
+            medio = (lo + hi) / 2
+            if cambia(self.puntajes(np.exp(medio), self.plazo)[()]):
+                hi = medio
+            else:
+                lo = medio
+        valor = np.floor(np.exp(lo if self.aprobado else hi) / self.REDONDEO) * self.REDONDEO
+        for _ in range(5):                           # el redondeo no debe cruzar la frontera
+            if valor > self.REDONDEO and self.puntajes(valor, self.plazo)[()] >= self.umbral:
+                valor -= self.REDONDEO
+            else:
+                break
+        return float(max(valor, self.monto) if self.aprobado else valor)
+
+    def _limite_plazo(self):
+        """Plazo más largo (múltiplo de 3) con el que la solicitud queda aprobada, con la misma
+        lógica y el mismo significado de None que `_limite_monto`."""
+        if self.aprobado:
+            mayores = self.PLAZOS[self.PLAZOS > self.plazo]
+            rechaza = self.puntajes(self.monto, mayores) >= self.umbral
+            if not rechaza.any():
+                return None
+            j = int(np.argmax(rechaza))
+            return float(mayores[j - 1]) if j > 0 else float(self.plazo)
+        menores = self.PLAZOS[self.PLAZOS < self.plazo][::-1]
+        aprueba = self.puntajes(self.monto, menores) < self.umbral
+        return float(menores[int(np.argmax(aprueba))]) if aprueba.any() else None
+
+    def caminos(self):
+        return {"aprobado": self.aprobado, "monto": self._limite_monto(), "plazo": self._limite_plazo()}

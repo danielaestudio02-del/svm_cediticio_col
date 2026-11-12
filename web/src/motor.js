@@ -9,7 +9,8 @@
  *   - la verificación de coherencia de los datos de uso (esquema, categorías,
  *     rangos, reglas de negocio y deriva por PSI);
  *   - la lectura de CSV (separador "," o ";", UTF-8 o Latin-1, valores nulos de pandas);
- *   - la explicación SHAP de cada predicción a nivel de las 11 variables.
+ *   - la explicación SHAP de cada predicción a nivel de las 11 variables;
+ *   - el mapa de decisión monto × plazo y la búsqueda del cambio que cambia la decisión.
  *
  * SHAP: la aplicación de Streamlit estima los valores de Shapley con permutaciones
  * aleatorias (shap.PermutationExplainer, fondo de 50 clientes). Aquí se calculan de
@@ -297,6 +298,95 @@ const Motor = (() => {
     }
 
     // -----------------------------------------------------------------------
+    // Mapa de decisión (interpretacion.CorteMontoPlazo): el modelo en el plano
+    // monto × plazo con las otras 9 variables fijas. Con ellas fijas, el kernel
+    // RBF se separa en (factor fijo) · (factor del monto) · (factor del plazo),
+    // así que la malla completa sale de un producto de matrices.
+    // -----------------------------------------------------------------------
+    const K_MONTO = NUM.indexOf("monto_credito_cop"), K_PLAZO = NUM.indexOf("plazo_meses");
+    const PLAZOS = Array.from({ length: 24 }, (_, i) => 3 * (i + 1));  // el formulario usa múltiplos de 3
+    const N_BARRIDO = 240, N_BISECCION = 40, REDONDEO = 10000;
+
+    function crearCorte(fila) {
+      const { z, c } = transformar(fila);
+      const peso = new Float64Array(nSV), svM = new Float64Array(nSV), svP = new Float64Array(nSV);
+      for (let i = 0; i < nSV; i++) {
+        let d = 0;
+        const on = i * 4, oc = i * 7;
+        for (let k = 0; k < 4; k++) if (k !== K_MONTO && k !== K_PLAZO) { const t = z[k] - svNum[on + k]; d += t * t; }
+        for (let k = 0; k < 7; k++) d += distCat(c[k], svCat[oc + k]);
+        peso[i] = alfa[i] * Math.exp(-gamma * d);
+        svM[i] = svNum[on + K_MONTO]; svP[i] = svNum[on + K_PLAZO];
+      }
+      const zM = (m) => (m - pre.media[K_MONTO]) / pre.escala[K_MONTO];
+      const zP = (p) => (p - pre.media[K_PLAZO]) / pre.escala[K_PLAZO];
+      function puntajeEn(monto, plazo) {
+        const a = zM(monto), b = zP(plazo);
+        let s = b0;
+        for (let i = 0; i < nSV; i++) { const t = a - svM[i], u = b - svP[i]; s += peso[i] * Math.exp(-gamma * (t * t + u * u)); }
+        return s;
+      }
+      /** Puntajes en la malla montos × plazos; fila y = plazos[y]. */
+      function malla(montos, plazos) {
+        const nx = montos.length, ny = plazos.length, S = new Float64Array(nx * ny).fill(b0);
+        const em = new Float64Array(nx), ep = new Float64Array(ny);
+        const zm = montos.map(zM), zp = plazos.map(zP);
+        for (let i = 0; i < nSV; i++) {
+          for (let x = 0; x < nx; x++) { const t = zm[x] - svM[i]; em[x] = Math.exp(-gamma * t * t); }
+          for (let y = 0; y < ny; y++) { const t = zp[y] - svP[i]; ep[y] = peso[i] * Math.exp(-gamma * t * t); }
+          for (let y = 0; y < ny; y++) { const w = ep[y], o = y * nx; for (let x = 0; x < nx; x++) S[o + x] += w * em[x]; }
+        }
+        return S;
+      }
+      // Si falta el monto o el plazo, el pipeline usa la mediana de entrenamiento
+      const dato = (k, col) => { const v = valorNum(fila, col); return Number.isNaN(v) ? pre.mediana_num[k] : v; };
+      const r = perfil.numericas;
+      const corte = {
+        puntajeEn, malla, umbral: M.meta.umbral,
+        monto: dato(K_MONTO, "monto_credito_cop"), plazo: dato(K_PLAZO, "plazo_meses"),
+        montoImputado: Number.isNaN(valorNum(fila, "monto_credito_cop")), plazoImputado: Number.isNaN(valorNum(fila, "plazo_meses")),
+        montoMin: r.monto_credito_cop.min, montoMax: r.monto_credito_cop.max, plazoMin: r.plazo_meses.min, plazoMax: r.plazo_meses.max,
+      };
+      corte.aprobado = puntajeEn(corte.monto, corte.plazo) < corte.umbral;
+      corte.caminos = () => ({ aprobado: corte.aprobado, monto: limiteMonto(corte), plazo: limitePlazo(corte) });
+      return corte;
+    }
+
+    /** Monto más alto con el que se aprueba, buscando hacia abajo (rechazo) o hacia arriba (aprobación).
+     *  null: no existe en el rango de entrenamiento (rechazo) o se aprueba en todo él (aprobación). */
+    function limiteMonto(k) {
+      const hacia = k.aprobado ? k.montoMax : k.montoMin;
+      if (k.aprobado ? k.monto >= hacia : k.monto <= hacia) return null;
+      const l0 = Math.log(k.monto), l1 = Math.log(hacia), paso = (l1 - l0) / N_BARRIDO;
+      const cambia = (s) => (k.aprobado ? s >= k.umbral : s < k.umbral);
+      let j = -1;
+      for (let i = 1; i <= N_BARRIDO; i++) if (cambia(k.puntajeEn(Math.exp(l0 + i * paso), k.plazo))) { j = i; break; }
+      if (j < 0) return null;
+      let lo = l0 + (j - 1) * paso, hi = l0 + j * paso;           // lo: misma decisión; hi: decisión cambiada
+      for (let i = 0; i < N_BISECCION; i++) {
+        const medio = (lo + hi) / 2;
+        if (cambia(k.puntajeEn(Math.exp(medio), k.plazo))) hi = medio; else lo = medio;
+      }
+      let valor = Math.floor(Math.exp(k.aprobado ? lo : hi) / REDONDEO) * REDONDEO;
+      for (let i = 0; i < 5 && valor > REDONDEO && k.puntajeEn(valor, k.plazo) >= k.umbral; i++) valor -= REDONDEO;
+      return k.aprobado ? Math.max(valor, k.monto) : valor;
+    }
+
+    /** Plazo más largo (múltiplo de 3) con el que se aprueba; mismo significado de null. */
+    function limitePlazo(k) {
+      if (k.aprobado) {
+        let ultimo = k.plazo;
+        for (const p of PLAZOS.filter((p) => p > k.plazo)) {
+          if (k.puntajeEn(k.monto, p) >= k.umbral) return ultimo;
+          ultimo = p;
+        }
+        return null;
+      }
+      for (const p of PLAZOS.filter((p) => p < k.plazo).reverse()) if (k.puntajeEn(k.monto, p) < k.umbral) return p;
+      return null;
+    }
+
+    // -----------------------------------------------------------------------
     // Verificación de coherencia (interpretacion.verificar_coherencia)
     // -----------------------------------------------------------------------
     function reglasDeError(filas) {
@@ -405,7 +495,7 @@ const Motor = (() => {
 
     return {
       COLUMNAS, NUM, CAT, transformar, puntaje, probabilidad, probabilidadDePuntaje, umbralProbabilidad,
-      crearExplicacion, explicar, verificarCoherencia, filasConError, valorNum,
+      crearExplicacion, explicar, crearCorte, verificarCoherencia, filasConError, valorNum,
     };
   }
 

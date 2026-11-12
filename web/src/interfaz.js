@@ -61,6 +61,8 @@
     cpu: '<rect width="16" height="16" x="4" y="4" rx="2"/><rect width="6" height="6" x="9" y="9" rx="1"/><path d="M15 2v2"/><path d="M15 20v2"/><path d="M2 15h2"/><path d="M2 9h2"/><path d="M20 15h2"/><path d="M20 9h2"/><path d="M9 2v2"/><path d="M9 20v2"/>',
     lock: '<rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
     target: '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>',
+    map: '<path d="M14.106 5.553a2 2 0 0 0 1.788 0l3.659-1.83A1 1 0 0 1 21 4.619v12.764a1 1 0 0 1-.553.894l-4.553 2.277a2 2 0 0 1-1.788 0l-4.212-2.106a2 2 0 0 0-1.788 0l-3.659 1.83A1 1 0 0 1 3 19.381V6.618a1 1 0 0 1 .553-.894l4.553-2.277a2 2 0 0 1 1.788 0z"/><path d="M15 5.764v15"/><path d="M9 3.236v15"/>',
+    calendar: '<path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/>',
   };
   const icono = (n, clase = "") => `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"${clase ? ` class="${clase}"` : ""}>${ICONOS[n]}</svg>`;
   function colocarIconos(raiz = document) {
@@ -160,7 +162,7 @@
   // ---------------------------------------------------------------------
   // Select (Radix Select): disparador + lista flotante, con teclado
   // ---------------------------------------------------------------------
-  let selectAbierto = null;
+  let selectAbierto = null, selectAbiertoEn = 0;
   function crearSelect({ id, opciones, valor, alCambiar }) {
     const boton = document.createElement("button");
     boton.type = "button"; boton.id = id; boton.className = "select-disparador";
@@ -193,6 +195,7 @@
     function abrir() {
       if (selectAbierto) selectAbierto();
       selectAbierto = () => cerrar(false);
+      selectAbiertoEn = performance.now();
       lista = document.createElement("div");
       lista.className = "popover"; lista.setAttribute("role", "listbox"); lista.tabIndex = -1;
       lista.innerHTML = opciones.map((o, i) => `${o.especial && i > 0 ? '<div class="opcion-sep" role="separator"></div>' : ""}
@@ -238,7 +241,11 @@
     if (selectAbierto && !e.target.closest(".popover") && !e.target.closest(".select-disparador")) selectAbierto();
   });
   window.addEventListener("resize", () => selectAbierto && selectAbierto());
-  document.addEventListener("scroll", (e) => { if (selectAbierto && !(e.target.closest && e.target.closest(".popover"))) selectAbierto(); }, true);
+  // Al desplazar la página se cierra la lista; se ignora el desplazamiento que llega en el mismo instante en
+  // que se abre (los eventos de scroll se despachan en el cuadro siguiente al desplazamiento que los causó)
+  document.addEventListener("scroll", (e) => {
+    if (selectAbierto && performance.now() - selectAbiertoEn > 150 && !(e.target.closest && e.target.closest(".popover"))) selectAbierto();
+  }, true);
 
   // ---------------------------------------------------------------------
   // Campo numérico con pasos (como st.number_input)
@@ -406,8 +413,269 @@
       <div class="shap-leyenda"><span><i class="cuadro baja"></i>Reduce el riesgo</span><span>Contribución al puntaje del SVM (SHAP)</span><span><i class="cuadro sube"></i>Aumenta el riesgo</span></div>`;
   }
 
+  // ---------------------------------------------------------------------
+  // Mapa de decisión: el modelo en el plano monto × plazo, con las otras 9
+  // variables fijas en los valores de la solicitud (Motor.crearCorte)
+  // ---------------------------------------------------------------------
+  const MAPA = { nx: 120, ny: 80, ml: 46, mr: 10, mt: 26, mb: 44 };          // malla y márgenes (px)
+  const RGB_FONDO = [23, 23, 23], RGB_VERDE = [0, 188, 125], RGB_ROJO = [255, 100, 103];  // --card, --exito, --destructive
+  const RANGO_LOGIT = 2;                     // ±2 en logit alrededor del umbral: de ~2% a ~55% de P(malo)
+  const logit = (q) => Math.log(q / (1 - q));
+  const sigmoide = (v) => 1 / (1 + Math.exp(-v));
+  const acotar = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+  const millones = (v) => (v < 1e6 ? `$${Math.round(v / 1000)} mil` : `$${String(+(v / 1e6).toFixed(1)).replace(".", ",")} M`);
+  let idMapa = 0;
+
+  /** Color del mapa para t en [-1, 1] (negativo: aprobar; positivo: rechazar), mezclado con el fondo. */
+  function colorMapa(t) {
+    const a = 0.1 + 0.72 * Math.pow(Math.abs(t), 0.85), c = t < 0 ? RGB_VERDE : RGB_ROJO;
+    return RGB_FONDO.map((f, i) => Math.round(f + (c[i] - f) * a));
+  }
+
+  /** Curvas de nivel de S (malla nx × ny) en `nivel` (marching squares): polilíneas en coordenadas de malla. */
+  function curvasDeNivel(S, nx, ny, nivel) {
+    const pts = new Map();
+    const cruce = (id, x0, y0, x1, y1) => {
+      if (!pts.has(id)) {
+        const v0 = S[y0 * nx + x0], v1 = S[y1 * nx + x1], t = (nivel - v0) / (v1 - v0);
+        pts.set(id, [x0 + (x1 - x0) * t, y0 + (y1 - y0) * t]);
+      }
+      return id;
+    };
+    const segs = [];
+    for (let y = 0; y < ny - 1; y++) {
+      for (let x = 0; x < nx - 1; x++) {
+        const va = S[y * nx + x], vb = S[y * nx + x + 1], vc = S[(y + 1) * nx + x + 1], vd = S[(y + 1) * nx + x];
+        const a = va >= nivel, b = vb >= nivel, c = vc >= nivel, d = vd >= nivel;
+        const k = [];                                            // aristas: abajo, derecha, arriba, izquierda
+        if (a !== b) k.push(cruce(`h${x},${y}`, x, y, x + 1, y));
+        if (b !== c) k.push(cruce(`v${x + 1},${y}`, x + 1, y, x + 1, y + 1));
+        if (d !== c) k.push(cruce(`h${x},${y + 1}`, x, y + 1, x + 1, y + 1));
+        if (a !== d) k.push(cruce(`v${x},${y}`, x, y, x, y + 1));
+        if (k.length === 2) segs.push(k);
+        else if (k.length === 4) {                               // punto de silla: decide el centro
+          if (((va + vb + vc + vd) / 4 >= nivel) === a) segs.push([k[0], k[1]], [k[2], k[3]]);
+          else segs.push([k[0], k[3]], [k[1], k[2]]);
+        }
+      }
+    }
+    const vecinos = new Map();
+    segs.forEach(([p, q], i) => [p, q].forEach((e) => { if (!vecinos.has(e)) vecinos.set(e, []); vecinos.get(e).push(i); }));
+    const usado = new Uint8Array(segs.length), lineas = [];
+    const recorrer = (inicio, i0) => {
+      const linea = [inicio];
+      let actual = inicio, i = i0;
+      while (i !== undefined && !usado[i]) {
+        usado[i] = 1;
+        const [p, q] = segs[i], sig = p === actual ? q : p;
+        linea.push(sig); actual = sig;
+        i = vecinos.get(sig).find((j) => !usado[j]);
+      }
+      return linea;
+    };
+    for (const [e, lista] of vecinos) if (lista.length === 1 && !usado[lista[0]]) lineas.push(recorrer(e, lista[0]));
+    segs.forEach((s, i) => { if (!usado[i]) lineas.push(recorrer(s[0], i)); });
+    return lineas.filter((l) => l.length > 2).map((l) => l.map((id) => pts.get(id)));
+  }
+
+  /** Panel lateral del mapa: la solicitud, los caminos hacia la otra decisión y la leyenda. */
+  function panelMapa(corte, caminos, p) {
+    const tipo = caminos.aprobado ? "aprobar" : "rechazar", lu = logit(P_UMBRAL);
+    const camino = (ic, titulo, desc, nulo = false) => `<div class="camino${nulo ? " nulo" : ""}"><span class="camino-icono">${icono(ic)}</span>
+      <div><div class="camino-titulo">${titulo}</div><div class="camino-desc">${desc}</div></div></div>`;
+    const plazoTxt = `${Math.round(corte.plazo)} meses`;
+    let titulo, items;
+    if (!caminos.aprobado) {
+      titulo = "Para pasar a Aprobar";
+      items = [
+        caminos.monto !== null ? camino("banknote", `Monto de hasta <b>${cop(caminos.monto)}</b>`, `con el mismo plazo (${plazoTxt})`)
+          : camino("banknote", "Ni con el monto mínimo", `de entrenamiento (${cop(corte.montoMin)}) pasaría`, true),
+        caminos.plazo !== null ? camino("calendar", `Plazo de <b>${caminos.plazo} meses</b>`, `con el mismo monto (${cop(corte.monto)})`)
+          : camino("calendar", "Ni con el plazo mínimo", "(3 meses) pasaría", true),
+      ];
+    } else {
+      titulo = "Margen antes del rechazo";
+      items = [
+        caminos.monto !== null ? camino("banknote", `Monto de hasta <b>${cop(caminos.monto)}</b>`, `sigue aprobada con el mismo plazo (${plazoTxt})`)
+          : camino("banknote", "Cualquier monto", `del rango de entrenamiento (hasta ${cop(corte.montoMax)})`),
+        caminos.plazo === null ? camino("calendar", "Cualquier plazo", "hasta 72 meses")
+          : caminos.plazo > corte.plazo ? camino("calendar", `Plazo de hasta <b>${caminos.plazo} meses</b>`, `sigue aprobada con el mismo monto (${cop(corte.monto)})`)
+            : camino("calendar", "Sin margen de plazo", "con un plazo más largo pasaría a rechazo", true),
+      ];
+    }
+    const notas = [];
+    if (corte.montoImputado || corte.plazoImputado) notas.push("El monto o el plazo no se informó: el mapa usa la mediana de entrenamiento, igual que el pipeline.");
+    if (corte.monto < corte.montoMin || corte.monto > corte.montoMax) notas.push("El monto está fuera del rango de entrenamiento: el punto se dibuja en el borde.");
+    const paradas = Array.from({ length: 9 }, (_, i) => { const t = -1 + i / 4; return `rgb(${colorMapa(t === 0 ? -1e-9 : t).join(" ")}) ${(i / 8) * 100}%`; });
+    return `<div class="mapa-seccion">
+        <div class="mapa-seccion-titulo">Esta solicitud</div>
+        <div class="mapa-datos">
+          <div class="mapa-dato"><span>Monto</span><b>${millones(corte.monto)}</b></div>
+          <div class="mapa-dato"><span>Plazo</span><b>${plazoTxt}</b></div>
+          <div class="mapa-dato" data-tipo="${tipo}"><span>P(malo)</span><b>${pct1(p)}</b></div>
+        </div></div>
+      <div class="mapa-seccion">
+        <div class="mapa-seccion-titulo">${titulo} <span>· cambiando una sola variable</span></div>
+        <div class="caminos" data-tipo="${tipo}">${items.join("")}</div>
+        ${caminos.monto === null && caminos.plazo === null && !caminos.aprobado ? `<p class="texto-pequeno">El riesgo viene de las otras variables: vea <strong>¿Por qué?</strong></p>` : ""}
+      </div>
+      <div class="mapa-seccion">
+        <div class="mapa-leyenda">
+          <div class="mapa-leyenda-barra" style="background:linear-gradient(90deg, ${paradas.join(", ")})"><span class="marca"></span></div>
+          <div class="mapa-leyenda-escala"><span>≤${(sigmoide(lu - RANGO_LOGIT) * 100).toFixed(0)}%</span><span>${pct1(P_UMBRAL)}</span><span>≥${(sigmoide(lu + RANGO_LOGIT) * 100).toFixed(0)}%</span></div>
+          <div class="mapa-leyenda-extremos"><span>Aprobar</span><span>P(malo)</span><span>Rechazar</span></div>
+        </div>
+        <p class="texto-pequeno">${notas.map((n) => `${esc(n)} `).join("")}La línea blanca es la frontera del SVM, donde P(malo) = ${pct1(P_UMBRAL)}.
+          Es un corte del modelo: las otras 9 variables quedan fijas en los valores de esta solicitud, y cada camino mueve una sola variable.</p>
+      </div>`;
+  }
+
+  /** Dibuja el mapa de decisión de `fila` en `cont` y su panel en `panel`. */
+  function pintarMapa(cont, panel, fila, m, p, opciones = {}) {
+    const corte = m.crearCorte(fila), caminos = corte.caminos();
+    const { nx, ny, ml, mr, mt, mb } = MAPA;
+    const lm0 = Math.log(corte.montoMin), lm1 = Math.log(corte.montoMax);
+    const montos = Array.from({ length: nx }, (_, x) => Math.exp(lm0 + ((x + 0.5) / nx) * (lm1 - lm0)));
+    const plazos = Array.from({ length: ny }, (_, y) => corte.plazoMin + ((y + 0.5) / ny) * (corte.plazoMax - corte.plazoMin));
+    const S = corte.malla(montos, plazos);
+    const lu = logit(P_UMBRAL), tipo = caminos.aprobado ? "aprobar" : "rechazar", uid = ++idMapa;
+
+    // Mapa de calor: un píxel por punto de la malla; el navegador lo suaviza al escalarlo
+    const lienzo = document.createElement("canvas");
+    lienzo.className = "mapa-calor";
+    lienzo.width = nx; lienzo.height = ny;
+    const ctx = lienzo.getContext("2d"), img = ctx.createImageData(nx, ny);
+    for (let y = 0; y < ny; y++) {
+      for (let x = 0; x < nx; x++) {
+        const t = acotar((META.platt.a * S[y * nx + x] + META.platt.b - lu) / RANGO_LOGIT, -1, 1);
+        const [r, g, b] = colorMapa(t), o = ((ny - 1 - y) * nx + x) * 4;
+        img.data[o] = r; img.data[o + 1] = g; img.data[o + 2] = b; img.data[o + 3] = 255;
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+    const curvas = curvasDeNivel(S, nx, ny, corte.umbral);
+
+    const resumen = caminos.aprobado ? "La solicitud está en la zona de aprobación." : "La solicitud está en la zona de rechazo.";
+    cont.innerHTML = `<div class="mapa-lienzo" data-caminos="${tipo}">
+        <svg class="mapa-capa" aria-hidden="true"></svg>
+        <div class="mapa-etiquetas" aria-hidden="true"></div>
+        <div class="mapa-cursor" hidden></div>
+        <div class="mapa-sensor" role="img" aria-label="Mapa de decisión del SVM según monto y plazo. ${resumen}"></div>
+        <div class="mapa-tip" hidden></div>
+      </div>
+      <p class="mapa-ayuda texto-pequeno">${icono("info")}<span>Pase el cursor para ver el riesgo en cada punto${opciones.alElegir ? "; haga clic para evaluar ese monto y plazo" : ""}.</span></p>`;
+    panel.innerHTML = panelMapa(corte, caminos, p);
+    const caja = $(".mapa-lienzo", cont), svg = $(".mapa-capa", cont), etiquetas = $(".mapa-etiquetas", cont);
+    const sensor = $(".mapa-sensor", cont), tip = $(".mapa-tip", cont), cursor = $(".mapa-cursor", cont);
+    caja.prepend(lienzo);
+
+    let geo = null;
+    function dibujar() {
+      const Wt = caja.clientWidth, Ht = caja.clientHeight, W = Wt - ml - mr, H = Ht - mt - mb;
+      if (W <= 0 || H <= 0) return;
+      const X = (monto) => ml + ((Math.log(monto) - lm0) / (lm1 - lm0)) * W;
+      const Y = (plazo) => mt + (1 - (plazo - corte.plazoMin) / (corte.plazoMax - corte.plazoMin)) * H;
+      geo = { W, H, X, Y };
+      const gx = (x) => ml + ((x + 0.5) / nx) * W, gy = (y) => mt + (1 - (y + 0.5) / ny) * H;
+      for (const el of [lienzo, sensor]) Object.assign(el.style, { left: `${ml}px`, top: `${mt}px`, width: `${W}px`, height: `${H}px` });
+      svg.setAttribute("viewBox", `0 0 ${Wt} ${Ht}`);
+      svg.setAttribute("width", Wt); svg.setAttribute("height", Ht);
+
+      const m0 = acotar(corte.monto, corte.montoMin, corte.montoMax), p0 = acotar(corte.plazo, corte.plazoMin, corte.plazoMax);
+      const x0 = X(m0), y0 = Y(p0);
+      const ticksX = (W >= 420 ? [5e5, 1e6, 2e6, 5e6, 1e7, 2e7, 5e7] : [5e5, 2e6, 1e7, 5e7]).filter((t) => t >= corte.montoMin && t <= corte.montoMax);
+      const ticksY = [3, 12, 24, 36, 48, 60, 72];
+      const f1 = (v) => v.toFixed(1);
+      const partes = [`<defs><marker id="flecha-${uid}" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="mapa-flecha" d="M0 0L10 5L0 10z"/></marker></defs>`];
+      ticksX.forEach((t) => partes.push(`<line class="mapa-reja" x1="${f1(X(t))}" x2="${f1(X(t))}" y1="${mt}" y2="${mt + H}"/>`));
+      ticksY.forEach((t) => partes.push(`<line class="mapa-reja" x1="${ml}" x2="${ml + W}" y1="${f1(Y(t))}" y2="${f1(Y(t))}"/>`));
+      partes.push(`<rect class="mapa-marco" x="${ml + 0.5}" y="${mt + 0.5}" width="${W - 1}" height="${H - 1}" rx="8"/>`);
+      curvas.forEach((c) => partes.push(`<path class="mapa-frontera" pathLength="1" d="${c.map(([a, b], i) => `${i ? "L" : "M"}${f1(gx(a))} ${f1(gy(b))}`).join("")}"/>`));
+      partes.push(`<path class="mapa-guia" d="M${f1(x0)} ${f1(y0)}V${mt + H}M${f1(x0)} ${f1(y0)}H${ml}"/>`);
+
+      // Caminos: del punto al monto (horizontal) o al plazo (vertical) que cambian la decisión
+      const destinos = [];
+      if (caminos.monto !== null && caminos.monto !== corte.monto) destinos.push({ x: X(acotar(caminos.monto, corte.montoMin, corte.montoMax)), y: y0, texto: millones(caminos.monto), lado: "arriba" });
+      if (caminos.plazo !== null && caminos.plazo !== corte.plazo) destinos.push({ x: x0, y: Y(caminos.plazo), texto: `${caminos.plazo} meses`, lado: "derecha" });
+      destinos.forEach((d, i) => {
+        const dx = d.x - x0, dy = d.y - y0, largo = Math.hypot(dx, dy);
+        if (largo < 18) return;
+        const ux = dx / largo, uy = dy / largo;
+        partes.push(`<line class="mapa-camino" x1="${f1(x0 + ux * 11)}" y1="${f1(y0 + uy * 11)}" x2="${f1(d.x - ux * 8)}" y2="${f1(d.y - uy * 8)}" marker-end="url(#flecha-${uid})" style="animation-delay:${800 + i * 160}ms"/>`,
+          `<circle class="mapa-destino" cx="${f1(d.x)}" cy="${f1(d.y)}" r="5" style="animation-delay:${950 + i * 160}ms"/>`);
+      });
+      partes.push(`<g class="mapa-punto" data-tipo="${tipo}"><circle class="pulso" cx="${f1(x0)}" cy="${f1(y0)}" r="7"/><circle class="nucleo" cx="${f1(x0)}" cy="${f1(y0)}" r="7"/></g>`);
+      svg.innerHTML = partes.join("");
+
+      // Etiquetas: marcas de los ejes (sin chocar con las de la solicitud), títulos y rótulos
+      const html = [];
+      ticksX.forEach((t) => { if (Math.abs(X(t) - x0) > 40) html.push(`<span class="mapa-tick x" style="left:${f1(X(t))}px;top:${mt + H + 7}px">${millones(t)}</span>`); });
+      ticksY.forEach((t) => { if (Math.abs(Y(t) - y0) > 13) html.push(`<span class="mapa-tick y" style="left:${ml - 8}px;top:${f1(Y(t))}px">${t}</span>`); });
+      html.push(`<span class="mapa-eje-pill x" style="left:${f1(x0)}px;top:${mt + H + 6}px">${millones(corte.monto)}</span>`,
+        `<span class="mapa-eje-pill y" style="left:${ml - 7}px;top:${f1(y0)}px">${Math.round(corte.plazo)}</span>`,
+        `<span class="mapa-titulo-eje y" style="left:${ml}px;top:2px">Plazo (meses)</span>`,
+        `<span class="mapa-titulo-eje x" style="left:${ml + W}px;top:${mt + H + 25}px">Monto del crédito (COP, escala logarítmica)</span>`);
+      destinos.forEach((d, i) => html.push(`<span class="mapa-destino-pill" data-lado="${d.lado}" style="left:${f1(d.x)}px;top:${f1(d.y)}px;animation-delay:${1000 + i * 160}ms">${d.texto}</span>`));
+      const fx = (x0 - ml) / W, fy = 1 - (y0 - mt) / H;
+      const derecha = caminos.aprobado ? fx < 0.3 : fx < 0.62, arriba = caminos.aprobado ? fy < 0.25 : fy < 0.78;
+      html.push(`<span class="mapa-etiqueta-punto" data-h="${derecha ? "der" : "izq"}" data-v="${arriba ? "arr" : "aba"}" style="left:${f1(x0)}px;top:${f1(y0)}px">Esta solicitud · <b>${pct1(p)}</b></span>`);
+      etiquetas.innerHTML = html.join("");
+    }
+    dibujar();
+    const observador = new ResizeObserver(() => {
+      if (!caja.isConnected) { observador.disconnect(); return; }
+      caja.classList.add("sin-animacion");                     // al redimensionar no se repiten las entradas
+      dibujar();
+    });
+    observador.observe(caja);
+
+    // Riesgo en cada punto (al pasar el cursor) y evaluación con un clic
+    const valoresEn = (clientX, clientY) => {
+      const r = sensor.getBoundingClientRect();
+      const fx = acotar((clientX - r.left) / r.width, 0, 1), fy = acotar((clientY - r.top) / r.height, 0, 1);
+      return {
+        monto: acotar(Math.round(Math.exp(lm0 + fx * (lm1 - lm0)) / 10000) * 10000, corte.montoMin, corte.montoMax),
+        plazo: acotar(Math.round((corte.plazoMin + (1 - fy) * (corte.plazoMax - corte.plazoMin)) / 3) * 3, 3, 72),
+      };
+    };
+    let ultimoToque = null;
+    function mostrarTip(v, tactil = false) {
+      if (!geo) return;
+      const s = corte.puntajeEn(v.monto, v.plazo), q = m.probabilidadDePuntaje(s), rechaza = s >= corte.umbral;
+      const x = geo.X(v.monto), y = geo.Y(v.plazo);
+      tip.innerHTML = `<div class="mapa-tip-valores"><b>${cop(v.monto)}</b> · ${v.plazo} meses</div>
+        <div class="mapa-tip-prob"><span>P(malo) <b>${pct1(q)}</b></span><span class="badge ${rechaza ? "badge-error" : "badge-exito"}">${rechaza ? "Rechazar" : "Aprobar"}</span></div>
+        ${opciones.alElegir ? `<div class="mapa-tip-accion">${tactil ? "Toque de nuevo para evaluar" : "Clic para evaluar"}</div>` : ""}`;
+      tip.dataset.h = x - ml > geo.W - 200 ? "izq" : "der";
+      tip.dataset.v = y - mt < 80 ? "aba" : "arr";
+      Object.assign(tip.style, { left: `${x}px`, top: `${y}px` });
+      Object.assign(cursor.style, { left: `${x}px`, top: `${y}px` });
+      tip.hidden = false; cursor.hidden = false;
+    }
+    const ocultarTip = () => { tip.hidden = true; cursor.hidden = true; };
+    let cuadro = 0, tipoPuntero = "mouse";
+    sensor.addEventListener("pointerdown", (e) => { tipoPuntero = e.pointerType; });
+    sensor.addEventListener("pointermove", (e) => {
+      if (e.pointerType === "touch" || cuadro) return;
+      const { clientX, clientY } = e;
+      cuadro = requestAnimationFrame(() => { cuadro = 0; mostrarTip(valoresEn(clientX, clientY)); });
+    });
+    sensor.addEventListener("pointerleave", (e) => { if (e.pointerType !== "touch") ocultarTip(); });
+    sensor.addEventListener("click", (e) => {
+      const v = valoresEn(e.clientX, e.clientY);
+      if (tipoPuntero === "touch") {                            // en pantallas táctiles: primer toque muestra, segundo evalúa
+        const repetido = ultimoToque && Math.hypot(e.clientX - ultimoToque.cx, e.clientY - ultimoToque.cy) < 28;
+        if (repetido && opciones.alElegir) { opciones.alElegir(ultimoToque.v.monto, ultimoToque.v.plazo); return; }
+        ultimoToque = { v, cx: e.clientX, cy: e.clientY };
+        mostrarTip(v, true);
+        return;
+      }
+      if (opciones.alElegir) opciones.alElegir(v.monto, v.plazo);
+    });
+  }
+
   /** Muestra la evaluación de `fila` en `cont`. Devuelve una promesa que termina con la explicación. */
-  async function renderizarResultado(cont, fila, m = motor) {
+  async function renderizarResultado(cont, fila, m = motor, opciones = {}) {
     const token = (tokens.get(cont) || 0) + 1;
     tokens.set(cont, token);
     const hallazgos = m.verificarCoherencia([fila], COLUMNAS, false);
@@ -456,6 +724,11 @@
             <div class="progreso"><span data-r="barra-avance"></span></div>
             ${Array.from({ length: 8 }, (_, i) => `<div class="skeleton" style="height:1.5rem;width:${92 - ((i * 37) % 45)}%;margin-left:auto"></div>`).join("")}
           </div></div>
+      </div>
+      <div class="card aparecer mapa-card" style="animation-delay:160ms">
+        <div class="card-header"><div class="card-titulo">${icono("map")}Mapa de decisión</div>
+          <div class="card-desc">Cómo cambiaría la decisión del SVM con otro monto o plazo, con las demás variables fijas en los valores de esta solicitud</div></div>
+        <div class="card-contenido mapa-grid"><div class="mapa" data-r="mapa"></div><div class="mapa-panel" data-r="mapa-panel"></div></div>
       </div></div>`;
     const col = cont.querySelector(".colapsable");
     if (col) col.querySelector(".colapsable-boton").addEventListener("click", (e) => {
@@ -465,7 +738,14 @@
     contar($('[data-r="prob"]', cont), p, pct1);
     await siguienteCuadro();
     $(".riesgo-relleno", cont).style.width = `${ancho}%`;
-    cont.scrollIntoView({ behavior: animacionReducida() ? "auto" : "smooth", block: "nearest" });
+    try {
+      pintarMapa($('[data-r="mapa"]', cont), $('[data-r="mapa-panel"]', cont), fila, m, p, opciones);
+    } catch (e) {
+      console.error(e);
+      $('[data-r="mapa"]', cont).innerHTML = `<p class="texto-pequeno">No se pudo dibujar el mapa de decisión.</p>`;
+    }
+    const desplazarA = opciones.desdeMapa ? $(".mapa-card", cont) : cont;
+    desplazarA.scrollIntoView({ behavior: animacionReducida() ? "auto" : "smooth", block: opciones.desdeMapa ? "center" : "nearest" });
 
     // SHAP exacto, por partes para no bloquear la interfaz
     const calculo = m.crearExplicacion(fila);
@@ -608,7 +888,8 @@
     };
   }
 
-  function evaluarSolicitud() {
+  /** `opc.desdeMapa`: la evaluación viene de un clic en el mapa de decisión (también recibe eventos de clic). */
+  function evaluarSolicitud(opc = {}) {
     // Como st.number_input: los valores escritos se ajustan al rango permitido
     [formulario.edad, formulario.saldo, formulario.monto].forEach((f) => f.set(f.get()));
     const fila = filaFormulario();
@@ -621,7 +902,14 @@
     }
     const cont = $("#resultado-solicitud");
     cont.dataset.vigente = "true";
-    renderizarResultado(cont, fila);
+    renderizarResultado(cont, fila, motor, {
+      desdeMapa: opc.desdeMapa === true,
+      alElegir: (monto, plazo) => {                         // clic en el mapa: ese monto y ese plazo pasan al formulario
+        formulario.monto.set(monto); formulario.plazo.set(plazo);
+        evaluarSolicitud({ desdeMapa: true });
+        toast("info", "Evaluado desde el mapa", `Monto ${cop(monto)} · plazo ${plazo} meses. El formulario se actualizó.`);
+      },
+    });
   }
 
   function marcarDesactualizado() {

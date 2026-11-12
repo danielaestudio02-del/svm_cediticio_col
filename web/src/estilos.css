@@ -415,6 +415,123 @@ input[type="range"]:hover::-moz-range-thumb, input[type="range"]:focus-visible::
 .progreso { height: 0.375rem; border-radius: 9999px; background: color-mix(in oklab, var(--primary) 15%, transparent); overflow: hidden; }
 .progreso > span { display: block; height: 100%; width: 0; background: var(--primary); border-radius: inherit; transition: width 0.2s linear; }
 
+/* ------------------------------------------------- mapa de decisión -- */
+.mapa-card { grid-column: 1 / -1; }
+.mapa-grid { display: grid; grid-template-columns: minmax(0, 1.8fr) minmax(16rem, 1fr); gap: 2rem; align-items: start; }
+.mapa { display: grid; gap: 0.75rem; min-width: 0; }
+.mapa-lienzo { position: relative; height: 22rem; user-select: none; -webkit-user-select: none; touch-action: manipulation; }
+.mapa-calor { position: absolute; border-radius: 0.5rem; animation: mapa-revelar 0.9s var(--suave) both; }
+@keyframes mapa-revelar { from { opacity: 0; filter: blur(8px) saturate(0.3); } }
+.mapa-capa { position: absolute; inset: 0; overflow: visible; pointer-events: none; }
+.mapa-etiquetas { position: absolute; inset: 0; pointer-events: none; }
+.mapa-sensor { position: absolute; z-index: 3; cursor: crosshair; border-radius: 0.5rem; }
+.mapa-reja { stroke: color-mix(in oklab, var(--foreground) 7%, transparent); stroke-width: 1; }
+.mapa-marco { fill: none; stroke: var(--border); }
+.mapa-frontera {
+  fill: none; stroke: var(--foreground); stroke-width: 2.25; stroke-linecap: round; stroke-linejoin: round;
+  stroke-dasharray: 1; stroke-dashoffset: 0; animation: mapa-trazo 1.3s 0.3s var(--suave) both;
+  filter: drop-shadow(0 0 5px color-mix(in oklab, var(--foreground) 45%, transparent));
+}
+@keyframes mapa-trazo { from { stroke-dashoffset: 1; } }
+.mapa-guia { fill: none; stroke: color-mix(in oklab, var(--foreground) 30%, transparent); stroke-width: 1; stroke-dasharray: 2 4; animation: fundido 0.4s 0.6s both; }
+.mapa-camino { stroke-width: 1.75; stroke-dasharray: 5 4; animation: fundido 0.5s both; }
+.mapa-destino { fill: var(--card); stroke-width: 2.25; transform-box: fill-box; transform-origin: center; animation: mapa-pop 0.45s var(--suave) both; }
+.mapa-lienzo[data-caminos="rechazar"] .mapa-camino, .mapa-lienzo[data-caminos="rechazar"] .mapa-destino { stroke: var(--exito); }
+.mapa-lienzo[data-caminos="rechazar"] .mapa-flecha { fill: var(--exito); }
+.mapa-lienzo[data-caminos="aprobar"] .mapa-camino, .mapa-lienzo[data-caminos="aprobar"] .mapa-destino { stroke: var(--destructive); }
+.mapa-lienzo[data-caminos="aprobar"] .mapa-flecha { fill: var(--destructive); }
+.mapa-punto circle { transform-box: fill-box; transform-origin: center; }
+.mapa-punto .nucleo { fill: var(--foreground); stroke: var(--card); stroke-width: 3; animation: mapa-pop 0.5s 0.4s var(--suave) both; }
+.mapa-punto .pulso { fill: none; stroke-width: 2; opacity: 0; animation: mapa-pulso 2.4s 1s ease-out infinite; }
+.mapa-punto[data-tipo="rechazar"] .pulso { stroke: var(--destructive); }
+.mapa-punto[data-tipo="aprobar"] .pulso { stroke: var(--exito); }
+@keyframes mapa-pop { from { transform: scale(0); opacity: 0; } }
+@keyframes mapa-pulso { 0% { transform: scale(1); opacity: 0.9; } 100% { transform: scale(3.2); opacity: 0; } }
+.mapa-lienzo.sin-animacion :not(.pulso) { animation: none !important; }
+
+.mapa-tick { position: absolute; font-family: var(--fuente-mono); font-size: 0.6875rem; color: var(--muted-foreground); white-space: nowrap; line-height: 1; }
+.mapa-tick.x { transform: translateX(-50%); }
+.mapa-tick.y { transform: translate(-100%, -50%); }
+.mapa-titulo-eje { position: absolute; font-size: 0.75rem; color: var(--muted-foreground); white-space: nowrap; line-height: 1.2; }
+.mapa-titulo-eje.x { transform: translateX(-100%); }
+.mapa-eje-pill, .mapa-destino-pill {
+  position: absolute; font-family: var(--fuente-mono); font-size: 0.6875rem; font-weight: 600; line-height: 1.1rem;
+  padding: 0 0.4375rem; border-radius: 9999px; white-space: nowrap; animation: fundido 0.4s 0.6s both;
+}
+.mapa-eje-pill { background: var(--foreground); color: var(--background); }
+.mapa-eje-pill.x { transform: translateX(-50%); }
+.mapa-eje-pill.y { transform: translate(-100%, -50%); }
+.mapa-destino-pill[data-lado="arriba"] { transform: translate(-50%, calc(-100% - 0.625rem)); }
+.mapa-destino-pill[data-lado="derecha"] { transform: translate(0.75rem, -50%); }
+.mapa-lienzo[data-caminos="rechazar"] .mapa-destino-pill { color: var(--exito); background: color-mix(in oklab, var(--exito) 16%, var(--card)); box-shadow: 0 0 0 1px color-mix(in oklab, var(--exito) 45%, transparent); }
+.mapa-lienzo[data-caminos="aprobar"] .mapa-destino-pill { color: var(--destructive); background: color-mix(in oklab, var(--destructive) 14%, var(--card)); box-shadow: 0 0 0 1px color-mix(in oklab, var(--destructive) 45%, transparent); }
+.mapa-etiqueta-punto {
+  position: absolute; font-size: 0.75rem; padding: 0.25rem 0.5rem; border-radius: calc(var(--radius) * 0.6); white-space: nowrap;
+  background: color-mix(in oklab, var(--popover) 85%, transparent); border: 1px solid var(--border); box-shadow: var(--sombra-md);
+  backdrop-filter: blur(6px); animation: fundido 0.4s 0.75s both;
+}
+.mapa-etiqueta-punto b { font-weight: 600; font-variant-numeric: tabular-nums; }
+.mapa-etiqueta-punto[data-h="der"][data-v="arr"] { transform: translate(0.75rem, calc(-100% - 0.75rem)); }
+.mapa-etiqueta-punto[data-h="der"][data-v="aba"] { transform: translate(0.75rem, 0.75rem); }
+.mapa-etiqueta-punto[data-h="izq"][data-v="arr"] { transform: translate(calc(-100% - 0.75rem), calc(-100% - 0.75rem)); }
+.mapa-etiqueta-punto[data-h="izq"][data-v="aba"] { transform: translate(calc(-100% - 0.75rem), 0.75rem); }
+
+.mapa-cursor {
+  position: absolute; z-index: 2; width: 0.875rem; height: 0.875rem; border-radius: 9999px; pointer-events: none;
+  border: 2px solid var(--foreground); box-shadow: 0 0 0 3px color-mix(in oklab, var(--background) 55%, transparent); transform: translate(-50%, -50%);
+}
+.mapa-tip {
+  position: absolute; z-index: 4; pointer-events: none; display: grid; gap: 0.3125rem; min-width: 12rem;
+  padding: 0.5rem 0.625rem; border-radius: calc(var(--radius) * 0.8); border: 1px solid var(--border);
+  background: var(--popover); color: var(--popover-foreground); box-shadow: var(--sombra-lg); font-size: 0.75rem;
+}
+.mapa-tip[data-h="der"][data-v="arr"] { transform: translate(0.875rem, calc(-100% - 0.875rem)); }
+.mapa-tip[data-h="der"][data-v="aba"] { transform: translate(0.875rem, 0.875rem); }
+.mapa-tip[data-h="izq"][data-v="arr"] { transform: translate(calc(-100% - 0.875rem), calc(-100% - 0.875rem)); }
+.mapa-tip[data-h="izq"][data-v="aba"] { transform: translate(calc(-100% - 0.875rem), 0.875rem); }
+.mapa-tip b { font-weight: 600; font-variant-numeric: tabular-nums; }
+.mapa-tip-prob { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+.mapa-tip-accion { color: var(--muted-foreground); font-size: 0.6875rem; }
+.mapa-ayuda { display: flex; align-items: center; gap: 0.375rem; }
+.mapa-ayuda svg { width: 0.875rem; height: 0.875rem; flex-shrink: 0; }
+
+.mapa-panel { display: grid; gap: 1.25rem; align-content: start; min-width: 0; }
+.mapa-seccion { display: grid; gap: 0.625rem; }
+.mapa-seccion + .mapa-seccion { padding-top: 1.25rem; border-top: 1px dashed var(--border); }
+.mapa-seccion-titulo { font-size: 0.8125rem; font-weight: 600; }
+.mapa-seccion-titulo span { font-weight: 400; color: var(--muted-foreground); }
+.mapa-datos { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.5rem; }
+.mapa-dato { display: grid; gap: 0.125rem; padding: 0.5rem 0.625rem; border-radius: calc(var(--radius) * 0.8); border: 1px solid var(--border); background: color-mix(in oklab, var(--muted) 40%, transparent); min-width: 0; }
+.mapa-dato span { font-size: 0.6875rem; color: var(--muted-foreground); }
+.mapa-dato b { font-family: var(--fuente-mono); font-size: 0.8125rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mapa-dato[data-tipo="rechazar"] b { color: var(--destructive); }
+.mapa-dato[data-tipo="aprobar"] b { color: var(--exito); }
+.caminos { display: grid; gap: 0.5rem; }
+.camino {
+  display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 0.75rem; align-items: center; padding: 0.625rem 0.75rem;
+  border-radius: var(--radius); border: 1px solid var(--border); background: color-mix(in oklab, var(--muted) 30%, transparent);
+  animation: aparecer 0.4s var(--suave) both;
+}
+.camino + .camino { animation-delay: 90ms; }
+.camino-icono { display: grid; place-items: center; width: 2rem; height: 2rem; border-radius: calc(var(--radius) * 0.8); }
+.camino-icono svg { width: 1rem; height: 1rem; }
+.caminos[data-tipo="rechazar"] .camino-icono { color: var(--exito); background: color-mix(in oklab, var(--exito) 15%, transparent); }
+.caminos[data-tipo="aprobar"] .camino-icono { color: var(--destructive); background: color-mix(in oklab, var(--destructive) 14%, transparent); }
+.caminos .camino.nulo .camino-icono { color: var(--muted-foreground); background: var(--muted); }
+.camino-titulo { font-size: 0.875rem; }
+.camino-titulo b { font-weight: 600; font-variant-numeric: tabular-nums; }
+.camino-desc { font-size: 0.75rem; color: var(--muted-foreground); }
+.mapa-leyenda { display: grid; gap: 0.375rem; }
+.mapa-leyenda-barra { position: relative; height: 0.5rem; border-radius: 9999px; box-shadow: inset 0 0 0 1px var(--border); }
+.mapa-leyenda-barra .marca { position: absolute; left: 50%; top: -0.25rem; bottom: -0.25rem; width: 2px; border-radius: 1px; background: var(--foreground); transform: translateX(-50%); }
+.mapa-leyenda-escala, .mapa-leyenda-extremos { display: flex; justify-content: space-between; }
+.mapa-leyenda-escala { font-family: var(--fuente-mono); font-size: 0.6875rem; color: var(--muted-foreground); }
+.mapa-leyenda-escala span:nth-child(2) { color: var(--foreground); }
+.mapa-leyenda-extremos { font-size: 0.75rem; font-weight: 500; }
+.mapa-leyenda-extremos span:first-child { color: var(--exito); }
+.mapa-leyenda-extremos span:nth-child(2) { color: var(--muted-foreground); font-weight: 400; }
+.mapa-leyenda-extremos span:last-child { color: var(--destructive); }
+
 /* --------------------------------------------------------------- lote -- */
 .zona {
   position: relative; display: grid; place-items: center; gap: 0.5rem; padding: 2rem 1rem; text-align: center;
@@ -535,6 +652,7 @@ tbody tr.fila-nueva { animation: fundido 0.3s ease both; }
 @media (max-width: 1100px) {
   .form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .resultado { grid-template-columns: minmax(0, 1fr); }
+  .mapa-grid { grid-template-columns: minmax(0, 1fr); }
   .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .estadisticas { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
@@ -555,6 +673,8 @@ tbody tr.fila-nueva { animation: fundido 0.3s ease both; }
   .tab .corto { display: inline; }
   .shap-fila, .shap-ejes { grid-template-columns: minmax(6.5rem, 8.5rem) minmax(0, 1fr); gap: 0.5rem; }
   .shap-ticks span:nth-child(even) { display: none; }
+  .mapa-lienzo { height: 18rem; }
+  .mapa-titulo-eje.x { font-size: 0.6875rem; }
   .metrica-valor { font-size: 2.125rem; }
   .toaster { right: 1rem; bottom: 1rem; }
   .buscador { width: 100%; }

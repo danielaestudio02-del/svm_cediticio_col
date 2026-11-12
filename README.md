@@ -136,8 +136,11 @@ La aplicación tiene tres pestañas:
 
 - **Evaluar una solicitud**: formulario con las 11 variables. Verifica los
   datos, aplica el `Pipeline` completo y devuelve la decisión (umbral de costo
-  mínimo 5:1), la probabilidad calibrada de "malo" y la explicación SHAP de la
-  predicción.
+  mínimo 5:1), la probabilidad calibrada de "malo", la explicación SHAP de la
+  predicción y el **mapa de decisión**: la frontera del SVM en el plano monto ×
+  plazo, con las otras 9 variables fijas en los valores de la solicitud, y el
+  monto o el plazo con el que cambiaría la decisión
+  (`CorteMontoPlazo` en `src/interpretacion.py`).
 - **Evaluar un lote (CSV)**: verifica un archivo completo frente al perfil de
   entrenamiento (esquema, categorías, rangos, contradicciones y deriva por
   PSI), excluye las filas con errores, puntúa el resto y permite descargar los
@@ -170,8 +173,10 @@ decisiones reales de crédito.
 cálculos) en un solo archivo, sin servidor ni Python: se abre con doble clic o
 se publica en GitHub Pages. Lleva dentro el modelo exportado (vectores de
 soporte, imputación, escalado, calibración de Platt y umbral) y calcula en el
-navegador la decisión, la probabilidad, los valores SHAP exactos y la
-verificación de coherencia del lote; ningún dato sale del equipo. La interfaz
+navegador la decisión, la probabilidad, los valores SHAP exactos, el mapa de
+decisión (interactivo: al pasar el cursor muestra el riesgo de cada monto y
+plazo, y con un clic los evalúa) y la verificación de coherencia del lote;
+ningún dato sale del equipo. La interfaz
 sigue el sistema de diseño de [shadcn/ui](https://ui.shadcn.com) (tipografía
 Geist, modo oscuro, adaptable a móvil).
 

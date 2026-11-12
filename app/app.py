@@ -7,7 +7,9 @@ aplica el `Pipeline` completo del modelo final (imputación, escalamiento,
 one-hot y SVM RBF) y devuelve:
   - la decisión con el umbral de costo mínimo 5:1 elegido en entrenamiento,
   - la probabilidad calibrada de "malo" (Platt),
-  - la explicación SHAP de la predicción, a nivel de las 11 variables.
+  - la explicación SHAP de la predicción, a nivel de las 11 variables,
+  - el mapa de decisión: la frontera del SVM en el plano monto × plazo y el cambio
+    de monto o de plazo que cambiaría la decisión.
 
 Ejecución (desde la raíz del repositorio):
     python src/modelo_final.py      # solo si models/modelo_final.joblib no existe
@@ -23,8 +25,8 @@ import streamlit as st
 
 RAIZ = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(RAIZ / "src"))
-from interpretacion import (COLUMNAS, NOMBRES, ModeloFinal, crear_explicador,  # noqa: E402
-                            filas_con_error, tabla_explicacion, verificar_coherencia)
+from interpretacion import (COLUMNAS, NOMBRES, CorteMontoPlazo, ModeloFinal,  # noqa: E402
+                            crear_explicador, filas_con_error, tabla_explicacion, verificar_coherencia)
 
 RUTA_MODELO = RAIZ / "models" / "modelo_final.joblib"
 RUTA_EJEMPLO = RAIZ / "app" / "ejemplo_solicitudes.csv"
@@ -137,6 +139,102 @@ def grafico_shap(tabla):
     return fig
 
 
+def corto(v):
+    """Monto abreviado para el gráfico: $500 mil, $1 M, $2,5 M."""
+    if v < 1e6:
+        return f"${v / 1e3:.0f} mil"
+    return "$" + f"{v / 1e6:.1f}".rstrip("0").rstrip(".").replace(".", ",") + " M"
+
+
+def grafico_mapa(corte, caminos, p):
+    """Mapa de decisión: P(malo) en el plano monto × plazo (las otras 9 variables fijas), la
+    frontera del SVM en el umbral y los caminos hacia la otra decisión."""
+    import matplotlib.pyplot as plt
+    from matplotlib.colors import LinearSegmentedColormap, TwoSlopeNorm
+
+    montos, plazos, S = corte.malla()
+    logit = modelo.a * S + modelo.b                 # logit de P(malo) (calibración de Platt)
+    lu = modelo.a * modelo.umbral + modelo.b        # el umbral, en la misma escala
+    colores = LinearSegmentedColormap.from_list(
+        "decision", ["#1E8449", "#82E0AA", "#F8F9F9", "#F1948A", "#C0392B"])
+    fig, ax = plt.subplots(figsize=(7.8, 4.4))
+    calor = ax.pcolormesh(montos, plazos, np.clip(logit, lu - 2, lu + 2), cmap=colores,
+                          norm=TwoSlopeNorm(vmin=lu - 2, vcenter=lu, vmax=lu + 2),
+                          shading="gouraud", rasterized=True)
+    ax.contour(montos, plazos, S, levels=[modelo.umbral], colors="#17202A", linewidths=2.4,
+               linestyles="solid")  # el umbral es negativo y matplotlib punteaba los niveles negativos
+    ax.set_xscale("log")
+    marcas = [t for t in [5e5, 1e6, 2e6, 5e6, 1e7, 2e7, 5e7] if corte.monto_min <= t <= corte.monto_max]
+    ax.set_xticks(marcas, [corto(t) for t in marcas])
+    ax.xaxis.set_minor_locator(plt.NullLocator())
+    ax.set_yticks([3, 12, 24, 36, 48, 60, 72])
+    ax.set_xlim(corte.monto_min, corte.monto_max)
+    ax.set_ylim(corte.plazo_min, corte.plazo_max)
+    ax.set_xlabel("Monto del crédito (COP, escala logarítmica)")
+    ax.set_ylabel("Plazo (meses)")
+    for s in ["top", "right"]:
+        ax.spines[s].set_visible(False)
+
+    # Caminos hacia la otra decisión (verde: para aprobar; rojo: margen antes del rechazo)
+    m0 = float(np.clip(corte.monto, corte.monto_min, corte.monto_max))
+    p0 = float(np.clip(corte.plazo, corte.plazo_min, corte.plazo_max))
+    tono = "#145A32" if not caminos["aprobado"] else "#922B21"
+    flecha = dict(arrowstyle="-|>", color=tono, lw=1.8, linestyle="--", shrinkA=9, shrinkB=6)
+    caja = dict(boxstyle="round,pad=0.3", fc="white", ec=tono, lw=1)
+    destinos = []
+    if caminos["monto"] is not None and caminos["monto"] != corte.monto:
+        destinos.append(((caminos["monto"], p0), corto(caminos["monto"]), (0, 10), "center", "bottom"))
+    if caminos["plazo"] is not None and caminos["plazo"] != corte.plazo:
+        destinos.append(((m0, caminos["plazo"]), f"{caminos['plazo']:.0f} meses", (10, 0), "left", "center"))
+    for xy, texto, desplazamiento, ha, va in destinos:
+        ax.annotate("", xy=xy, xytext=(m0, p0), arrowprops=flecha, zorder=4)
+        ax.scatter(*xy, s=60, facecolor="white", edgecolor=tono, linewidth=2, zorder=5)
+        ax.annotate(texto, xy, xytext=desplazamiento, textcoords="offset points", ha=ha, va=va,
+                    fontsize=9, fontweight="bold", color=tono, bbox=caja, zorder=7)
+
+    # La solicitud, con la etiqueta del lado contrario a los caminos
+    fx = np.log(m0 / corte.monto_min) / np.log(corte.monto_max / corte.monto_min)
+    fy = (p0 - corte.plazo_min) / (corte.plazo_max - corte.plazo_min)
+    derecha = fx < 0.65 if not caminos["aprobado"] else fx < 0.3
+    arriba = fy < 0.8 if not caminos["aprobado"] else fy < 0.2
+    ax.scatter([m0], [p0], s=180, color="white", edgecolor="#17202A", linewidth=2.6, zorder=6)
+    ax.annotate(f"Esta solicitud · {p:.1%}", (m0, p0), xytext=(12 if derecha else -12, 12 if arriba else -12),
+                textcoords="offset points", ha="left" if derecha else "right", va="bottom" if arriba else "top",
+                fontsize=9, fontweight="bold", color="#17202A", zorder=7,
+                bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="#17202A", lw=0.8))
+
+    barra = fig.colorbar(calor, ax=ax, pad=0.02, fraction=0.045)
+    niveles = [q for q in [0.03, 0.05, P_UMBRAL, 0.3, 0.5] if lu - 2 <= np.log(q / (1 - q)) <= lu + 2]
+    barra.set_ticks([np.log(q / (1 - q)) for q in niveles],
+                    labels=[f"{q:.1%}" if q == P_UMBRAL else f"{q:.0%}" for q in niveles])
+    barra.set_label("P(malo)")
+    fig.tight_layout()
+    return fig
+
+
+def texto_caminos(corte, caminos):
+    """Lo que cambiaría la decisión, moviendo solo el monto o solo el plazo."""
+    if not caminos["aprobado"]:
+        lineas = ["**Para pasar a Aprobar**, cambiando una sola variable:",
+                  f"- con un monto de hasta **{cop(caminos['monto'])}** y el mismo plazo;" if caminos["monto"] is not None
+                  else f"- ni con el monto mínimo de entrenamiento ({cop(corte.monto_min)}) pasaría;",
+                  f"- con un plazo de **{caminos['plazo']:.0f} meses** y el mismo monto." if caminos["plazo"] is not None
+                  else "- ni con el plazo mínimo (3 meses) pasaría."]
+        if caminos["monto"] is None and caminos["plazo"] is None:
+            lineas.append("\nEl riesgo viene de las otras variables (vea **¿Por qué?**).")
+    else:
+        lineas = ["**Margen antes del rechazo**, cambiando una sola variable:",
+                  f"- seguiría aprobada con un monto de hasta **{cop(caminos['monto'])}**;" if caminos["monto"] is not None
+                  else f"- seguiría aprobada con cualquier monto del rango de entrenamiento (hasta {cop(corte.monto_max)});"]
+        if caminos["plazo"] is None:
+            lineas.append("- seguiría aprobada con cualquier plazo, hasta 72 meses.")
+        elif caminos["plazo"] > corte.plazo:
+            lineas.append(f"- seguiría aprobada con un plazo de hasta **{caminos['plazo']:.0f} meses**.")
+        else:
+            lineas.append("- con un plazo más largo pasaría a rechazo.")
+    return "\n".join(lineas)
+
+
 def mostrar_figura(fig):
     import matplotlib.pyplot as plt
 
@@ -199,6 +297,30 @@ def resultado_individual(X):
         st.caption("Cada barra es lo que esa variable suma o resta al puntaje del SVM frente a un "
                    "solicitante promedio de entrenamiento (valores SHAP). Las barras suman la diferencia "
                    "entre el puntaje de esta solicitud y el promedio.")
+
+    st.subheader("Mapa de decisión")
+    st.caption("Cómo cambiaría la decisión del SVM con otro monto o plazo, con las demás variables fijas "
+               "en los valores de esta solicitud.")
+    corte = CorteMontoPlazo(modelo, X, perfil)
+    caminos = corte.caminos()
+    c1, c2 = st.columns([1.7, 1], gap="large")
+    with c1:
+        mostrar_figura(grafico_mapa(corte, caminos, p))
+    with c2:
+        st.markdown(f"**Esta solicitud:** monto {cop(corte.monto)} · plazo {corte.plazo:.0f} meses · "
+                    f"P(malo) {p:.1%}")
+        st.markdown(texto_caminos(corte, caminos))
+        notas = []
+        if pd.isna(pd.to_numeric(X["monto_credito_cop"].iloc[0], errors="coerce")) or \
+                pd.isna(pd.to_numeric(X["plazo_meses"].iloc[0], errors="coerce")):
+            notas.append("El monto o el plazo no se informó: el mapa usa la mediana de entrenamiento, "
+                         "igual que el pipeline.")
+        if not (corte.monto_min <= corte.monto <= corte.monto_max):
+            notas.append("El monto está fuera del rango de entrenamiento: el punto se dibuja en el borde.")
+        st.caption(" ".join(notas + [
+            f"Verde: se aprueba; rojo: se rechaza. La línea oscura es la frontera del SVM, donde "
+            f"P(malo) = {P_UMBRAL:.1%}. Es un corte del modelo: las otras 9 variables quedan fijas en los "
+            "valores de esta solicitud, y cada camino mueve una sola variable."]))
 
 
 # ---------------------------------------------------------------------------
