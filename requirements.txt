@@ -7,3 +7,8 @@ scipy==1.17.1
 matplotlib==3.11.2
 ipykernel==7.4.0
 nbconvert==7.17.1
+# Entrega final: interpretación y despliegue
+shap==0.54.1
+lime==0.2.0.1
+streamlit==1.67.0
+joblib==1.6.0

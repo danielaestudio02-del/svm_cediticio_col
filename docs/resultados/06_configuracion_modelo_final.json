@@ -1,0 +1,32 @@
+{
+  "nombre": "SVM RBF",
+  "hiperparametros": {
+    "gamma": 0.01,
+    "C": 1.0
+  },
+  "umbral": -0.4919942885166927,
+  "metricas_test": {
+    "F1 (malo)": 0.4833,
+    "ROC-AUC": 0.776,
+    "Recall (malo)": 0.8664,
+    "Precisión (malo)": 0.3351,
+    "Costo medio (5:1)": 0.5362,
+    "Accuracy (ref.)": 0.5838
+  },
+  "n_vectores_soporte": 3645,
+  "costos": {
+    "falso_negativo": 5,
+    "falso_positivo": 1
+  },
+  "fecha_entrenamiento": "2026-11-12",
+  "versiones": {
+    "python": "3.13.18",
+    "scikit-learn": "1.9.1",
+    "numpy": "2.5.3"
+  },
+  "calibracion_platt": {
+    "a": 1.1177933810580174,
+    "b": -1.2455612686161142,
+    "umbral_en_probabilidad": 0.1424
+  }
+}

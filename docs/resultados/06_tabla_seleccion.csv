@@ -1,0 +1,8 @@
+,ROC-AUC anidada,desv. ROC-AUC,Costo medio (5:1) anidada,desv. Costo medio (5:1),F1 (malo) anidada,Recall (malo) anidada,p-valor AUC vs. logística,ROC-AUC test,Costo test,Interpretabilidad
+Regresión logística (línea base),0.765,0.018,0.55,0.028,0.482,0.84,—,0.774,0.539,Alta: coeficientes en escala logit
+SVM lineal,0.765,0.017,0.552,0.025,0.485,0.823,0.988,0.774,0.545,Alta: coeficientes (sin probabilidad)
+SVM RBF,0.766,0.017,0.541,0.016,0.49,0.832,0.29,0.776,0.536,Baja: requiere SHAP o dependencia parcial
+SVM RBF + selección LASSO,0.765,0.017,0.549,0.022,0.488,0.82,0.602,0.776,0.539,Baja: requiere SHAP o dependencia parcial
+Árbol de decisión,0.708,0.013,0.645,0.03,0.442,0.776,0.04,0.737,0.586,Alta: reglas explícitas
+Random Forest,0.755,0.011,0.578,0.016,0.475,0.8,0.151,0.77,0.572,Baja: 300 árboles
+Gradient Boosting,0.762,0.018,0.56,0.036,0.478,0.833,0.473,0.773,0.525,Media-baja: árboles de un corte
