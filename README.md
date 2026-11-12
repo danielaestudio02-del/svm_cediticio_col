@@ -101,7 +101,8 @@ como complemento al código de los notebooks.
 
 ## Cómo reproducir
 
-Desde la carpeta que contiene este README:
+Desde la carpeta que contiene este README, con **Python 3.12 o 3.13** (la versión de
+`shap` fijada en `requirements.txt` no se instala en Python 3.11):
 
 ```bash
 python -m venv .venv
@@ -116,7 +117,7 @@ jupyter nbconvert --to notebook --execute --inplace notebooks/0*.ipynb
 
 python informe/generar_informe.py       # regenera el PDF de la Segunda entrega
 
-python src/modelo_final.py              # entrena y guarda el modelo final (~20 s)
+python src/modelo_final.py              # entrena y guarda el modelo final (~1 min)
 python informe/generar_informe_final.py # regenera el PDF de la Entrega final
 ```
 
@@ -143,8 +144,9 @@ La aplicación tiene tres pestañas:
 - **Acerca del modelo**: flujo de cada predicción y límites de uso.
 
 Si `models/modelo_final.joblib` no existe o no abre con las versiones
-instaladas, la aplicación reentrena el modelo al iniciar (unos 20 segundos;
-semilla 42, mismas cifras).
+instaladas, la aplicación reentrena el modelo al iniciar (semilla 42, mismas
+cifras). Tarda cerca de un minuto con 8 núcleos y varios minutos en un servidor
+con pocos núcleos, como el de Streamlit Community Cloud.
 
 ### Publicarla en Streamlit Community Cloud
 
@@ -152,8 +154,10 @@ semilla 42, mismas cifras).
    acceso al repositorio.
 2. **Create app** → repositorio `danielaestudio02-del/svm_cediticio_col`,
    rama `main`, archivo principal `app/app.py`.
-3. En **Advanced settings**, elegir Python 3.11 (la versión de
-   `requirements.txt`) y desplegar. La primera instalación tarda unos minutos.
+3. En **Advanced settings**, elegir **Python 3.13** (la versión con que se
+   entrenó el modelo; con 3.11 la instalación falla porque `shap==0.54.1`
+   exige Python 3.12 o superior) y desplegar. La primera instalación tarda unos
+   minutos.
 
 Es un prototipo académico entrenado con datos simulados: no debe usarse para
 decisiones reales de crédito.

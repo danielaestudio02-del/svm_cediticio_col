@@ -1,4 +1,5 @@
-# Python 3.11 — versiones con las que se ejecutaron los notebooks
+# Python 3.12 o 3.13 (shap 0.54.1 no se instala en Python 3.11).
+# Los notebooks 01-05 se ejecutaron con Python 3.11; el 06 y el modelo final, con Python 3.13.
 numpy==2.4.6
 pandas==3.0.6
 scikit-learn==1.9.1

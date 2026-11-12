@@ -53,12 +53,13 @@ st.set_page_config(page_title="Riesgo crediticio · SVM", page_icon="💳", layo
 @st.cache_resource
 def cargar():
     """Carga el modelo guardado; si falta o no abre con las librerías instaladas
-    (p. ej. otra versión de NumPy en el servidor), lo reentrena (~20 s, semilla 42)."""
+    (p. ej. otra versión de NumPy en el servidor), lo reentrena con semilla 42
+    (1 minuto con 8 núcleos; varios minutos en servidores con pocos núcleos)."""
     try:
         artefacto = joblib.load(RUTA_MODELO)
     except Exception:
         import modelo_final
-        with st.spinner("Preparando el modelo por primera vez (unos 20 segundos)…"):
+        with st.spinner("Preparando el modelo por primera vez (puede tardar unos minutos)…"):
             artefacto = modelo_final.entrenar()
     modelo = ModeloFinal(artefacto)
     explicar = crear_explicador(modelo, artefacto["fondo_shap"].iloc[:50])
@@ -72,6 +73,36 @@ P_UMBRAL = modelo.umbral_probabilidad
 
 def cop(v):
     return f"$ {v:,.0f}".replace(",", ".")
+
+
+COLUMNA_POR_NOMBRE = {v: k for k, v in NOMBRES.items()}
+
+
+def con_etiquetas(tabla, fila):
+    """Muestra las categorías con su etiqueta en español (con tildes) en la explicación."""
+    tabla = tabla.copy()
+    tabla["Valor"] = [ETIQUETAS.get(COLUMNA_POR_NOMBRE[n], {}).get(fila[COLUMNA_POR_NOMBRE[n]], v)
+                      for n, v in zip(tabla["Variable"], tabla["Valor"])]
+    return tabla
+
+
+def en_minuscula(texto):
+    """Primera letra en minúscula, sin tocar siglas como (COP)."""
+    return texto[:1].lower() + texto[1:]
+
+
+def leer_csv(archivo):
+    """Lee un CSV detectando el separador (coma o punto y coma, como lo exporta Excel en
+    español) y la codificación (UTF-8 o Latin-1). Devuelve (DataFrame, None) o (None, error)."""
+    for codificacion in ("utf-8-sig", "latin-1"):
+        try:
+            archivo.seek(0)
+            return pd.read_csv(archivo, sep=None, engine="python", encoding=codificacion), None
+        except UnicodeDecodeError:
+            continue
+        except Exception as e:  # archivo vacío, filas de distinto largo, etc.
+            return None, f"No se pudo leer el archivo como CSV ({type(e).__name__}: {e})."
+    return None, "No se pudo leer el archivo: la codificación no es UTF-8 ni Latin-1."
 
 
 def barra_riesgo(p):
@@ -104,6 +135,13 @@ def grafico_shap(tabla):
         ax.spines[s].set_visible(False)
     fig.tight_layout()
     return fig
+
+
+def mostrar_figura(fig):
+    import matplotlib.pyplot as plt
+
+    st.pyplot(fig, width="stretch")
+    plt.close(fig)  # libera la memoria: cada explicación crea una figura nueva
 
 
 def mostrar_hallazgos(h):
@@ -146,17 +184,17 @@ def resultado_individual(X):
         st.subheader("¿Por qué?")
         with st.spinner("Calculando la explicación (SHAP)…"):
             exp = explicar(X)
-        tabla = tabla_explicacion(exp[0], X.iloc[0])
-        st.pyplot(grafico_shap(tabla), width="stretch")
+        tabla = con_etiquetas(tabla_explicacion(exp[0], X.iloc[0]), X.iloc[0])
+        mostrar_figura(grafico_shap(tabla))
         sube = tabla[tabla["Contribución"] > 0].head(3)
         baja = tabla[tabla["Contribución"] < 0].head(3)
         frases = []
         if len(sube):
             frases.append("**Aumentan el riesgo:** " + "; ".join(
-                f"{v.lower()} = {x}" for v, x in zip(sube["Variable"], sube["Valor"])) + ".")
+                f"{en_minuscula(v)} = {x}" for v, x in zip(sube["Variable"], sube["Valor"])) + ".")
         if len(baja):
             frases.append("**Lo reducen:** " + "; ".join(
-                f"{v.lower()} = {x}" for v, x in zip(baja["Variable"], baja["Valor"])) + ".")
+                f"{en_minuscula(v)} = {x}" for v, x in zip(baja["Variable"], baja["Valor"])) + ".")
         st.markdown("  \n".join(frases))
         st.caption("Cada barra es lo que esa variable suma o resta al puntaje del SVM frente a un "
                    "solicitante promedio de entrenamiento (valores SHAP). Las barras suman la diferencia "
@@ -177,6 +215,7 @@ with st.sidebar:
     n_sv = f"{artefacto['n_vectores_soporte']:,}".replace(",", ".")
     st.markdown(f"""
 **{artefacto['nombre']}** · `C = {hp['C']:g}` · `γ = {hp['gamma']:g}`
+
 {n_sv} vectores de soporte
 
 **Desempeño en prueba** (1.300 clientes)
@@ -253,13 +292,14 @@ with pestanas[1]:
                                value=archivo is None)
     lote = None
     if archivo is not None:
-        lote = pd.read_csv(archivo)
+        lote, error_lectura = leer_csv(archivo)
+        if error_lectura:
+            st.error(error_lectura)
     elif usar_ejemplo and RUTA_EJEMPLO.exists():
         lote = pd.read_csv(RUTA_EJEMPLO)
 
     if lote is not None:
         hall = verificar_coherencia(lote, perfil)
-        n_err = int(hall.loc[hall["nivel"] == "error", "filas"].sum()) if not hall.empty else 0
         st.subheader("Verificación de coherencia con entrenamiento")
         if hall.empty:
             st.success("Sin hallazgos: el lote es coherente con los datos de entrenamiento.")
@@ -270,8 +310,10 @@ with pestanas[1]:
             st.dataframe(hall.assign(variable=hall["variable"].map(lambda v: NOMBRES.get(v, v))),
                          hide_index=True, width="stretch")
 
-        if any(c not in lote.columns for c in COLUMNAS):
-            st.stop()
+    if lote is not None and any(c not in lote.columns for c in COLUMNAS):
+        # Sin st.stop(): detendría todo el script y dejaría en blanco la pestaña "Acerca del modelo"
+        st.error("El archivo no tiene todas las columnas que necesita el modelo; no se puntúa.")
+    elif lote is not None:
         # Filas con errores: no se puntúan
         filas_error = filas_con_error(lote, perfil)
         X_lote = lote[COLUMNAS].copy()
@@ -291,14 +333,19 @@ with pestanas[1]:
             k3.metric("Aprobadas", f"{(res['decision'] == 'aprobar').mean():.1%}")
             k4.metric("P(malo) media", f"{prob.mean():.1%}")
             if "riesgo" in res.columns:
-                real = (res["riesgo"] == "malo").astype(int).to_numpy()
-                pred = (prob >= P_UMBRAL).astype(int)
-                st.caption(f"El archivo trae la etiqueta real: recall de 'malo' = {pred[real == 1].mean():.3f}, "
-                           f"costo medio 5:1 = {(5 * ((real == 1) & (pred == 0)).sum() + ((real == 0) & (pred == 1)).sum()) / len(real):.3f}.")
+                # Solo filas con etiqueta conocida; el recall exige al menos un "malo"
+                con_etiqueta = res["riesgo"].isin(["bueno", "malo"]).to_numpy()
+                real = (res["riesgo"] == "malo").to_numpy()[con_etiqueta]
+                pred = (prob >= P_UMBRAL)[con_etiqueta]
+                if real.any():
+                    costo = (5 * (real & ~pred).sum() + (~real & pred).sum()) / len(real)
+                    st.caption(f"El archivo trae la etiqueta real ({len(real)} filas): recall de 'malo' = "
+                               f"{pred[real].mean():.3f}, costo medio 5:1 = {costo:.3f}.")
             st.dataframe(res, hide_index=True, width="stretch",
                          column_config={"prob_malo": st.column_config.ProgressColumn(
                              "P(malo)", min_value=0.0, max_value=1.0, format="%.3f")})
-            st.download_button("Descargar resultados (CSV)", res.to_csv(index=False).encode("utf-8"),
+            # utf-8-sig: Excel en español abre el archivo con las tildes correctas
+            st.download_button("Descargar resultados (CSV)", res.to_csv(index=False).encode("utf-8-sig"),
                                "resultados_riesgo.csv", "text/csv")
 
             st.subheader("Explicar una solicitud del lote")
@@ -306,6 +353,8 @@ with pestanas[1]:
                                   max_value=len(res), value=1, step=1)
             if st.button("Explicar"):
                 resultado_individual(validas.iloc[[int(pos) - 1]].reset_index(drop=True))
+        else:
+            st.warning("Ninguna fila del archivo se puede puntuar: todas tienen errores de captura.")
 
 # --- 3. Acerca del modelo ---
 with pestanas[2]:
