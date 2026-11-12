@@ -142,10 +142,18 @@ La aplicación tiene tres pestañas:
   solicitudes de la partición de prueba y 4 con errores de captura.
 - **Acerca del modelo**: flujo de cada predicción y límites de uso.
 
-`models/modelo_final.joblib` se generó con las versiones de `requirements.txt`
-(salvo NumPy 2.5 y Python 3.13). Si al abrir la aplicación aparece un error al
-cargar el modelo, basta con regenerarlo con `python src/modelo_final.py`: el
-entrenamiento es determinista (semilla 42) y reproduce las mismas cifras.
+Si `models/modelo_final.joblib` no existe o no abre con las versiones
+instaladas, la aplicación reentrena el modelo al iniciar (unos 20 segundos;
+semilla 42, mismas cifras).
+
+### Publicarla en Streamlit Community Cloud
+
+1. Entrar a https://share.streamlit.io con la cuenta de GitHub que tiene
+   acceso al repositorio.
+2. **Create app** → repositorio `danielaestudio02-del/svm_cediticio_col`,
+   rama `main`, archivo principal `app/app.py`.
+3. En **Advanced settings**, elegir Python 3.11 (la versión de
+   `requirements.txt`) y desplegar. La primera instalación tarda unos minutos.
 
 Es un prototipo académico entrenado con datos simulados: no debe usarse para
 decisiones reales de crédito.

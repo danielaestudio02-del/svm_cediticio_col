@@ -52,10 +52,14 @@ st.set_page_config(page_title="Riesgo crediticio · SVM", page_icon="💳", layo
 # ---------------------------------------------------------------------------
 @st.cache_resource
 def cargar():
-    if not RUTA_MODELO.exists():
-        st.error("No se encontró `models/modelo_final.joblib`. Ejecute primero `python src/modelo_final.py`.")
-        st.stop()
-    artefacto = joblib.load(RUTA_MODELO)
+    """Carga el modelo guardado; si falta o no abre con las librerías instaladas
+    (p. ej. otra versión de NumPy en el servidor), lo reentrena (~20 s, semilla 42)."""
+    try:
+        artefacto = joblib.load(RUTA_MODELO)
+    except Exception:
+        import modelo_final
+        with st.spinner("Preparando el modelo por primera vez (unos 20 segundos)…"):
+            artefacto = modelo_final.entrenar()
     modelo = ModeloFinal(artefacto)
     explicar = crear_explicador(modelo, artefacto["fondo_shap"].iloc[:50])
     return artefacto, modelo, explicar
