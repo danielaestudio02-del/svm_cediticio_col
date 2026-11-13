@@ -2,7 +2,7 @@
  * Motor del modelo final en el navegador (sin dependencias ni acceso al DOM).
  *
  * Reproduce, con los parámetros exportados por web/construir_web.py, lo que hacen
- * src/preprocesamiento.py, src/interpretacion.py y app/app.py en Python:
+ * src/preprocesamiento.py, src/interpretacion.py y app/app_clasica.py en Python:
  *   - el Pipeline: imputación (saldo por categoría; mediana o moda en el resto),
  *     escalamiento y one-hot;
  *   - el SVM con kernel RBF, la calibración de Platt y el umbral de costo mínimo 5:1;

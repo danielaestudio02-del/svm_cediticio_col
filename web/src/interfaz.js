@@ -1,5 +1,5 @@
 /*
- * Interfaz de la versión web. Misma estructura que app/app.py (Streamlit):
+ * Interfaz de la versión web. Misma estructura que app/app_clasica.py (Streamlit):
  * barra lateral con la ficha del modelo y tres pestañas: "Evaluar una solicitud",
  * "Evaluar un lote (CSV)" y "Acerca del modelo". Los componentes imitan los de
  * shadcn/ui (Select, Tabs, Card, Badge, Alert, Slider, Checkbox, Tooltip, Sonner,
@@ -616,10 +616,33 @@
         `<span class="mapa-titulo-eje y" style="left:${ml}px;top:2px">Plazo (meses)</span>`,
         `<span class="mapa-titulo-eje x" style="left:${ml + W}px;top:${mt + H + 25}px">Monto del crédito (COP, escala logarítmica)</span>`);
       destinos.forEach((d, i) => html.push(`<span class="mapa-destino-pill" data-lado="${d.lado}" style="left:${f1(d.x)}px;top:${f1(d.y)}px;animation-delay:${1000 + i * 160}ms">${d.texto}</span>`));
-      const fx = (x0 - ml) / W, fy = 1 - (y0 - mt) / H;
-      const derecha = caminos.aprobado ? fx < 0.3 : fx < 0.62, arriba = caminos.aprobado ? fy < 0.25 : fy < 0.78;
-      html.push(`<span class="mapa-etiqueta-punto" data-h="${derecha ? "der" : "izq"}" data-v="${arriba ? "arr" : "aba"}" style="left:${f1(x0)}px;top:${f1(y0)}px">Esta solicitud · <b>${pct1(p)}</b></span>`);
+      html.push(`<span class="mapa-etiqueta-punto" style="left:${f1(x0)}px;top:${f1(y0)}px">Esta solicitud · <b>${pct1(p)}</b></span>`);
       etiquetas.innerHTML = html.join("");
+
+      // Rótulo de la solicitud: la posición alrededor del punto que no se encime con ningún otro rótulo
+      // (caminos, ejes, títulos) ni se salga del lienzo; a igualdad, la del lado contrario a los
+      // caminos. Primero se busca con 4 px de aire y luego sin él; si no hay lugar, se prueba el rótulo
+      // corto (solo el porcentaje) y, si tampoco cabe, se omite: el panel lateral muestra el mismo dato.
+      const rotulo = $(".mapa-etiqueta-punto", etiquetas), base = caja.getBoundingClientRect();
+      const cajas = [...etiquetas.children].filter((el) => el !== rotulo).map((el) => {
+        const r = el.getBoundingClientRect();
+        return { x0: r.left - base.left, y0: r.top - base.top, x1: r.right - base.left, y1: r.bottom - base.top };
+      }).concat([{ x0: x0 - 10, y0: y0 - 10, x1: x0 + 10, y1: y0 + 10 }]);   // el punto
+      const fx = (x0 - ml) / W, fy = 1 - (y0 - mt) / H, sep = 12;
+      const derecha = caminos.aprobado ? fx < 0.3 : fx < 0.62, arriba = caminos.aprobado ? fy < 0.25 : fy < 0.78;
+      const vs = arriba ? ["arr", "aba"] : ["aba", "arr"], hs = derecha ? ["der", "izq", "centro"] : ["izq", "der", "centro"];
+      const ubicar = (aire) => {
+        const w = rotulo.offsetWidth, h = rotulo.offsetHeight;
+        const xs = { der: x0 + sep, izq: x0 - sep - w, centro: x0 - w / 2 };
+        const ys = { arr: y0 - sep - h, aba: y0 + sep, arr2: y0 - sep - h - 30, aba2: y0 + sep + 30 };
+        return [...vs, ...vs.map((v) => `${v}2`)].flatMap((v) => hs.map((hh) => [xs[hh], ys[v]])).find(([x, y]) =>
+          x >= 0 && y >= 0 && x + w <= Wt && y + h <= Ht &&
+          cajas.every((o) => x + w + aire <= o.x0 || o.x1 + aire <= x || y + h + aire <= o.y0 || o.y1 + aire <= y));
+      };
+      let lugar = ubicar(4) || ubicar(0);
+      if (!lugar) { rotulo.innerHTML = `<b>${pct1(p)}</b>`; lugar = ubicar(4) || ubicar(0); }
+      if (!lugar) rotulo.remove();
+      else Object.assign(rotulo.style, { left: `${f1(lugar[0])}px`, top: `${f1(lugar[1])}px` });
     }
     dibujar();
     const observador = new ResizeObserver(() => {
@@ -690,6 +713,9 @@
     }
     const p = m.probabilidad(fila), rechazar = p >= P_UMBRAL, tipo = rechazar ? "rechazar" : "aprobar";
     const delta = (p - P_UMBRAL) * 100;
+    // Alto de la explicación anterior: se conserva mientras se calcula la nueva para que el mapa no se corra
+    const explicacionPrevia = cont.querySelector('[data-r="explicacion"]');
+    const altoPrevio = explicacionPrevia && !explicacionPrevia.querySelector(".cargando-shap") ? explicacionPrevia.offsetHeight : 0;
     const ancho = Math.min(p / 0.8, 1) * 100, marca = (P_UMBRAL / 0.8) * 100;
     const observaciones = hallazgos.length ? `<div class="colapsable" data-abierto="false">
         <button class="colapsable-boton" type="button" aria-expanded="false">Observaciones sobre los datos (${hallazgos.length})${icono("chevronDown")}</button>
@@ -730,6 +756,7 @@
           <div class="card-desc">Cómo cambiaría la decisión del SVM con otro monto o plazo, con las demás variables fijas en los valores de esta solicitud</div></div>
         <div class="card-contenido mapa-grid"><div class="mapa" data-r="mapa"></div><div class="mapa-panel" data-r="mapa-panel"></div></div>
       </div></div>`;
+    if (altoPrevio) $('[data-r="explicacion"]', cont).style.minHeight = `${altoPrevio}px`;
     const col = cont.querySelector(".colapsable");
     if (col) col.querySelector(".colapsable-boton").addEventListener("click", (e) => {
       const abierto = col.dataset.abierto !== "true";
@@ -764,6 +791,7 @@
       .sort((a, b) => Math.abs(b.contrib) - Math.abs(a.contrib));
     const sube = tabla.filter((t) => t.contrib > 0).slice(0, 3), baja = tabla.filter((t) => t.contrib < 0).slice(0, 3);
     const frase = (t) => t.map((x) => `${esc(enMinuscula(x.variable))} = ${esc(x.valor)}`).join("; ");
+    $('[data-r="explicacion"]', cont).style.minHeight = "";
     $('[data-r="explicacion"]', cont).innerHTML = `<div class="aparecer" style="display:grid;gap:1.25rem">${graficoShap(tabla)}
       <div class="frases">${sube.length ? `<div><strong>Aumentan el riesgo:</strong> ${frase(sube)}.</div>` : ""}
         ${baja.length ? `<div><strong>Lo reducen:</strong> ${frase(baja)}.</div>` : ""}</div>

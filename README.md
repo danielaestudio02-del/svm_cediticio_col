@@ -138,11 +138,23 @@ El notebook 06 tarda unos 10 minutos (casi todo es el cálculo de SHAP).
 ## Aplicación (despliegue básico)
 
 ```bash
-python src/modelo_final.py      # solo si models/modelo_final.joblib no existe
-streamlit run app/app.py        # abre http://localhost:8501
+streamlit run app/app.py           # interfaz web (la que se publica); abre http://localhost:8501
+streamlit run app/app_clasica.py   # interfaz nativa de Streamlit, que ejecuta el modelo en Python
 ```
 
-La aplicación tiene tres pestañas:
+Hay dos versiones de la misma aplicación:
+
+- `app/app.py` publica a pantalla completa la versión web (`web/index.html`,
+  ver más abajo), con el diseño de shadcn/ui y el mapa de decisión interactivo.
+  Los cálculos los hace el navegador con el modelo exportado, que reproduce el
+  pipeline de Python (diferencia máxima < 1e-9 en las 1.300 solicitudes de
+  prueba).
+- `app/app_clasica.py` es la versión con la interfaz nativa de Streamlit descrita
+  en el informe final: carga `models/modelo_final.joblib` y ejecuta el pipeline,
+  SHAP y el mapa de decisión en Python (`python src/modelo_final.py` si el modelo
+  no existe).
+
+Las dos tienen tres pestañas:
 
 - **Evaluar una solicitud**: formulario con las 11 variables. Verifica los
   datos, aplica el `Pipeline` completo y devuelve la decisión (umbral de costo
@@ -159,7 +171,7 @@ La aplicación tiene tres pestañas:
 - **Acerca del modelo**: flujo de cada predicción y límites de uso.
 
 Si `models/modelo_final.joblib` no existe o no abre con las versiones
-instaladas, la aplicación reentrena el modelo al iniciar (semilla 42, mismas
+instaladas, la versión clásica reentrena el modelo al iniciar (semilla 42, mismas
 cifras). Tarda cerca de un minuto con 8 núcleos y varios minutos en un servidor
 con pocos núcleos, como el de Streamlit Community Cloud.
 

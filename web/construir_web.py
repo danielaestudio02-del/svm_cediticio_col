@@ -1,7 +1,8 @@
 """
 Construye la versión web (HTML autocontenido) de la aplicación de riesgo crediticio.
 
-La página reproduce la aplicación de Streamlit (`app/app.py`) sin servidor: el
+La página reproduce la aplicación nativa de Streamlit (`app/app_clasica.py`) sin
+servidor, y es la que publica `app/app.py`: el
 modelo final se exporta a JSON y se evalúa en el navegador con JavaScript
 (`web/src/motor.js`), con los mismos pasos del `Pipeline`:
 
@@ -39,19 +40,19 @@ DIR_WEB = Path(__file__).resolve().parent
 DIR_SRC = DIR_WEB / "src"
 RUTA_MODELO = RAIZ / "models" / "modelo_final.joblib"
 RUTA_EJEMPLO = RAIZ / "app" / "ejemplo_solicitudes.csv"
-RUTA_APP = RAIZ / "app" / "app.py"
+RUTA_APP = RAIZ / "app" / "app_clasica.py"
 SALIDA = DIR_WEB / "index.html"
 TAM_FONDO_SHAP = 50   # el mismo fondo que usa la aplicación de Streamlit
 URL_REPOSITORIO = "https://github.com/danielaestudio02-del/svm_cediticio_col"
 
 
 def etiquetas_de_la_app():
-    """Lee el diccionario ETIQUETAS de app/app.py (una sola fuente de verdad)."""
+    """Lee el diccionario ETIQUETAS de app/app_clasica.py (una sola fuente de verdad)."""
     arbol = ast.parse(RUTA_APP.read_text(encoding="utf-8"))
     for nodo in arbol.body:
         if isinstance(nodo, ast.Assign) and any(getattr(t, "id", None) == "ETIQUETAS" for t in nodo.targets):
             return ast.literal_eval(nodo.value)
-    raise RuntimeError("No se encontró ETIQUETAS en app/app.py")
+    raise RuntimeError(f"No se encontró ETIQUETAS en {RUTA_APP.relative_to(RAIZ)}")
 
 
 def a_json(valor):
